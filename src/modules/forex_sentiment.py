@@ -10,6 +10,7 @@ router = APIRouter()
 class NewsSource(BaseModel):
     title: str
     url: str
+    image: str
 
 class ForexAnalysisResponse(BaseModel):
     name: str

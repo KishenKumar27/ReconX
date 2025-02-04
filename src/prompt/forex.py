@@ -77,7 +77,7 @@ user_prompt = """Analyze the forex pair {forex_pair} and provide a structured fo
   "reason": "...",
   "recommendation": "{{Buy/Sell/Refrain}}",
   "news_sources": [
-    {{ "title": "Title of the News Article", "url": "URL of the news article" }},
+    {{ "title": "Title of the News Article", "url": "URL of the news article", "image": "URL of the news source favicon" }},
     ..
   ]`
 }}

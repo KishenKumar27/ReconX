@@ -1,5 +1,7 @@
 import ast
+import favicon
 import os
+import traceback
 
 from langchain_cohere import ChatCohere
 from langchain_core.prompts import ChatPromptTemplate
@@ -65,16 +67,14 @@ class ForexSentimentAnalyzer():
             # Converting the string into a Python dictionary
             forex_analysis = ast.literal_eval(json_string)
 
-            # # Formatting the 'news_sources' field as a string with links
-            # if 'news_sources' in forex_analysis:
-            #     news_sources = forex_analysis['news_sources']
-                
-            #     # Create a formatted string with URLs and titles
-            #     formatted_news_sources = ', '.join(
-            #         [f"{i+1}. [{news['title']}]({news['url']})" for i, news in enumerate(news_sources)]
-            #     )
-                
-            #     # Update the 'news_sources' field with the formatted string
-            #     forex_analysis['news_sources'] = formatted_news_sources
+        # Adding favicons for each news_source
+        if 'news_sources' in forex_analysis:
+            for news_source in forex_analysis['news_sources']:
+                try:
+                    icons = favicon.get(news_source.get("url", ""))
+                    news_source['image'] = icons[0].url if icons else ""  # Handle empty result
+                except Exception as e:
+                    news_source['image'] = ""  # Default to None if fetching fails
+                    print(f"Error fetching favicon for {news_source.get('url', '')}: {e}")
 
         return forex_analysis
