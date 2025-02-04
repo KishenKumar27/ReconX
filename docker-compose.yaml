@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:latest  # Use the official MySQL image
+    container_name: mysql_db  # Name of the MySQL container
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password  # Set the root password for MySQL
+      MYSQL_DATABASE: dispute_resolution_db  # Create a database for your app
+      MYSQL_USER: app_user  # Create a user for your app
+      MYSQL_PASSWORD: app_password  # Set the password for the app user
+    ports:
+      - "3307:3306"  # Expose MySQL port for local access
+    volumes:
+      - mysql_data:/var/lib/mysql  # Persistent data storage for MySQL
+    restart: always  # Automatically restart the container if it stops
+
+volumes:
+  mysql_data:
+    driver: local  # Use a named volume to persist MySQL data

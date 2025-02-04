@@ -5,12 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from src.core.analyzer import ForexSentimentAnalyzer
+from src.core.dispute_analyzer import DisputeAnalyzer
 from src.modules.forex_sentiment import router as forex_sentiment_router
+from src.modules.dispute_analysis import router as dispute_router
 
 from vers import version
 
 TAGS_METADATA = [
     {"name": "Forex", "description": "Operations related to forex."},
+    {"name": "Dispute", "description": "Operations related to dispute analysis."}
 ]
 
 # Set up logger
@@ -21,7 +24,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Context manager to handle startup and shutdown events."""
     app.state.forex_analyzer = ForexSentimentAnalyzer()
-    logger.info("Forex Sentiment Analyzer initialized.")
+    app.state.dispute_analyzer = DisputeAnalyzer()
+    logger.info("Forex Sentiment Analyzer and Dispute Analyzer initialized.")
     yield
 
 
@@ -57,6 +61,7 @@ app.add_middleware(
 )
 
 app.include_router(forex_sentiment_router, prefix="/forex", tags=["Forex"])
+app.include_router(dispute_router, prefix="/dispute", tags=["Dispute"])
 
 
 @app.get("/health", response_class=JSONResponse)
