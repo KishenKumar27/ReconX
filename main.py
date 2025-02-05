@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from src.core.analyzer import ForexSentimentAnalyzer
 from src.core.dispute_analyzer import DisputeAnalyzer
 from src.modules.forex_sentiment import router as forex_sentiment_router
-from src.modules.dispute_analysis import router as dispute_router
+from src.modules.report_trade import router as report_dispute_router
+from src.modules.ss_dispute_status import router as dispute_status_router
 
 from vers import version
 
@@ -61,8 +62,8 @@ app.add_middleware(
 )
 
 app.include_router(forex_sentiment_router, prefix="/forex", tags=["Forex"])
-app.include_router(dispute_router, prefix="/dispute", tags=["Dispute"])
-
+app.include_router(report_dispute_router, prefix="/report_dispute", tags=["Dispute"])
+app.include_router(dispute_status_router, prefix="/dispute_status", tags=["Dispute"])
 
 @app.get("/health", response_class=JSONResponse)
 async def healthz():

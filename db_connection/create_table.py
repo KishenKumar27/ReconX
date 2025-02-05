@@ -45,7 +45,7 @@ queries = [
         trade_id INT,
         reported_by INT,
         dispute_description TEXT NOT NULL,
-        dispute_type VARCHAR(50) NOT NULL,
+        dispute_type VARCHAR(50),
         status VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         resolved_at TIMESTAMP,
