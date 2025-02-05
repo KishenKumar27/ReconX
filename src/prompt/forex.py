@@ -79,9 +79,15 @@ user_prompt = """Analyze the forex pair {forex_pair} and provide a structured fo
   "news_sources": [
     {{ "title": "Title of the News Article", "url": "URL of the news article", "image": "URL of the news source favicon" }},
     ..
-  ]`
+  ]
 }}
 ```
 profitability_percentage must be in string format.
+
+Additional Constraints:
+- The reason must always provide a meaningful analysis based on available data.
+- If some data is unavailable, the response must still provide insights using related macroeconomic or sentiment data.
+- Do NOT generate reasons that explain missing data. Instead, extrapolate from related indicators or recent trends.
+- Ensure at least one macroeconomic insight and one news sentiment insight are included in the reason.
 
 """
