@@ -45,8 +45,8 @@ class DBConfig:
     host: str = "10.10.240.93"
     user: str = "app_user"
     password: str = "app_password"
-    port: str = "3307"
-    database: str = "payment_resolution_db"
+    port: str = "3306"
+    database: str = "payment_resolution"
 
 def create_database(db_config: DBConfig):
     """Create the trading_platform database if it doesn't exist."""
@@ -314,8 +314,8 @@ if __name__ == "__main__":
         host ="10.10.240.93",
         user = "app_user",
         password = "app_password",
-        port = "3307",
-        database = "payment_resolution_db"
+        port = "3306",
+        database = "payment_resolution"
     )
     
     # Generate data
