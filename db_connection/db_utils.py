@@ -1,5 +1,6 @@
 import mysql.connector
 from mysql.connector import Error
+import pandas as pd
 
 def upload_to_mysql(dataframe, table_name):
     try:
