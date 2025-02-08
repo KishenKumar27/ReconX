@@ -229,7 +229,7 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                 ])
 
             # FPX payment logs
-            elif tx[3] == "Bank Transfer":
+            elif tx[3] == "FPX":
                 unique_id = str(uuid.uuid4())
                 bank_name = "Bank X"
                 fpx_tx_id = str(uuid.uuid4())
