@@ -575,7 +575,7 @@ async def check_and_update_discrepancies():
         for transaction in unscanned_transactions:
             await process_transaction(transaction, cursor, connection)
             # Create a *task* for summary generation, don't await it here
-            asyncio.create_task(generate_reconciliation_summary(cursor, connection, transaction['transaction_id']))
+            asyncio.create_task(generate_reconciliation_summary(transaction['transaction_id']))
 
         # 2. Check for unresolved reconciliations (This part remains the same)
         cursor.execute("""
@@ -588,7 +588,7 @@ async def check_and_update_discrepancies():
         for reconciliation in unresolved_reconciliations:
             await process_transaction(reconciliation, cursor, connection, is_update=True)
             # Create a *task* for summary generation, don't await it here
-            asyncio.create_task(generate_reconciliation_summary(cursor, connection, reconciliation['transaction_id']))
+            asyncio.create_task(generate_reconciliation_summary(reconciliation['transaction_id']))
 
         # No need to generate summary here anymore. It's done in the background.
 
@@ -667,7 +667,10 @@ async def process_transaction(transaction_data, cursor, connection, is_update=Fa
         raise # Reraise the exception after rollback
 
 
-async def generate_reconciliation_summary(cursor, connection, transaction_id=None):  # Add transaction_id parameter
+async def generate_reconciliation_summary(transaction_id=None):  # Add transaction_id parameter
+    connection = get_db_connection()  # Open a new connection
+    cursor = connection.cursor(dictionary=True)
+
     try:
         if transaction_id:  # Generate summary for a specific transaction
             cursor.execute("""
@@ -700,6 +703,9 @@ async def generate_reconciliation_summary(cursor, connection, transaction_id=Non
     except Error as e:
         print(f"Error generating summary: {e}")
         raise
+    finally:
+        cursor.close()
+        connection.close()  # Close connection properly
 
 
 @app.get("/reconcile_data")
