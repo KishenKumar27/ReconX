@@ -41,11 +41,11 @@ class GenerationConfig:
 @dataclass
 class DBConfig:
     """Database connection configuration"""
-    host: str = "10.10.240.93"
-    user: str = "root"
-    password: str = "root_password"
-    port: str = "3306"
-    database: str = "payment_resolution"
+    host: str = "localhost"
+    user: str = "app_user"
+    password: str = "app_password"
+    port: str = "3307"
+    database: str = "trading_platform"
 
 def create_database(db_config: DBConfig):
     """Create the trading_platform database if it doesn't exist."""
@@ -410,11 +410,11 @@ if __name__ == "__main__":
     )
     
     db_config = DBConfig(
-        host="10.10.240.93",
-        user="root",
-        password="root_password",
-        port="3306",
-        database="payment_resolution"
+        host="localhost",
+        user="app_user",
+        password="app_password",
+        port="3307",
+        database="trading_platform"
     )
     
     # Generate data

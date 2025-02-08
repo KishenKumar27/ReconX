@@ -11,6 +11,8 @@ import os
 import requests
 from datetime import datetime, timedelta
 import asyncio
+import json
+from decimal import Decimal
 from dotenv import load_dotenv
 import pandas as pd
 import io
@@ -45,6 +47,30 @@ def get_db_connection():
             return connection
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
+
+async def create_reconciliation_summaries_table():
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reconciliation_summaries (
+                summary_id VARCHAR(255) PRIMARY KEY,
+                timestamp DATETIME,
+                total_transactions INT,
+                discrepancy_count INT,
+                resolution_rate FLOAT
+                -- Add other fields as needed
+            )
+        """)
+        connection.commit()
+        print("reconciliation_summaries table created or already exists.")
+    except Error as e:
+        print(f"Error creating reconciliation_summaries table: {e}")
+        connection.rollback()
+        raise  # Re-raise the exception to potentially stop startup
+    finally:
+        cursor.close()
+        connection.close()
 
 # Pydantic models
 class Transaction(BaseModel):
@@ -158,7 +184,61 @@ def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> dic
             "error": str(e)
         }
 
+def datetime_handler(obj):  # Custom JSON serializer
+    if isinstance(obj, datetime):
+        return obj.isoformat()  # Convert datetime to ISO string
+    raise TypeError("Object of type {} is not JSON serializable".format(type(obj)))
 
+
+def custom_serializer(obj):  # Combined custom serializer
+    if isinstance(obj, datetime):
+        return obj.isoformat()  # Convert datetime to ISO string
+    if isinstance(obj, Decimal):
+        return str(obj)  # Convert Decimal to string
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
+    if not reconciliation_records:
+        return "No reconciliation records found."
+
+    serializable_records = []
+    for record in reconciliation_records:
+        serializable_record = {}
+        for key, value in record.items():
+            if isinstance(value, datetime) or isinstance(value, Decimal):
+                serializable_record[key] = custom_serializer(value)  # Use custom serializer
+            else:
+                serializable_record[key] = value
+        serializable_records.append(serializable_record)
+
+
+    records_string = json.dumps(serializable_records, default=custom_serializer)  # Use custom serializer
+
+    prompt = f"""
+    Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
+
+    Reconciliation Records:
+    ```json
+    {records_string}
+    ```
+
+    Focus on identifying patterns and trends in the root causes.  If possible, quantify the prevalence of each root cause (e.g., "Amount Mismatch accounted for 60% of discrepancies").  Be concise.
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-ai/DeepSeek-V3",  # Or another suitable LLM
+            messages=[
+                {"role": "system", "content": "You are a payment forensic analyst summarizing reconciliation data."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        summary = response.choices[0].message.content
+        return summary
+    except Exception as e:
+        print(f"LLM summarization error: {e}")
+        return f"Error generating summary: {e}"
 
 def get_duplicate_payments(transaction_id: str) -> List[dict]:
     # Check for duplicate payments in the payment log
@@ -392,237 +472,143 @@ def get_reconcile_data(
 async def check_and_update_discrepancies():
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    
-    # Check for unscanned transactions
-    query = """
-        SELECT * FROM transactions
-        WHERE transaction_id NOT IN (SELECT transaction_id FROM reconciliation_records)
-    """
-    cursor.execute(query)
-    unscanned_transactions = cursor.fetchall()
-    
-    for transaction in unscanned_transactions:
-        transaction["transaction_status"]
 
-        # Perform discrepancy detection and reconciliation
-        discrepancy_result = detect_discrepancy(transaction['transaction_id'])
+    try:
+        # 1. Check for unscanned transactions
+        cursor.execute("""
+            SELECT * FROM transactions
+            WHERE transaction_id NOT IN (SELECT transaction_id FROM reconciliation_records)
+        """)
+        unscanned_transactions = cursor.fetchall()
 
-        # Get gateway status from payment logs
-        gateway_status_query = """
-            SELECT * FROM payment_logs
-            WHERE transaction_id = %s
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """
-        cursor.execute(gateway_status_query, (transaction['transaction_id'],))
-        gateway_status_result = cursor.fetchone()
-        gateway_status = gateway_status_result.get('gateway_status') if gateway_status_result else None
+        for transaction in unscanned_transactions:
+            await process_transaction(transaction, cursor, connection)
+            # Create a *task* for summary generation, don't await it here
+            asyncio.create_task(generate_reconciliation_summary(cursor, connection, transaction['transaction_id']))
 
-        if gateway_status_result is None:
-            gateway_amount = None
-        else:
-            gateway_amount = float(gateway_status_result.get('gateway_amount', None))
+        # 2. Check for unresolved reconciliations (This part remains the same)
+        cursor.execute("""
+            SELECT r.*, t.* FROM reconciliation_records r
+            JOIN transactions t ON r.transaction_id = t.transaction_id
+            WHERE r.resolution_status = 'Unresolved'
+        """)
+        unresolved_reconciliations = cursor.fetchall()
 
-        if gateway_amount is None:
-            discrepancy_amount = -1
-        else:
-            discrepancy_amount = abs(float(transaction.get('amount')) - float(gateway_status_result.get('gateway_amount')))
+        for reconciliation in unresolved_reconciliations:
+            await process_transaction(reconciliation, cursor, connection, is_update=True)
+            # Create a *task* for summary generation, don't await it here
+            asyncio.create_task(generate_reconciliation_summary(cursor, connection, reconciliation['transaction_id']))
 
-        # Set reconciled_balance to gateway_amount if available
-        reconciled_balance = gateway_amount if gateway_amount is not None else None
+        # No need to generate summary here anymore. It's done in the background.
 
-        # Determine resolution status based on new conditions
-        if gateway_status == "Success" and transaction.get('transaction_status') == "Success":
-            if discrepancy_amount == 0:
-                resolution_status = 'No Discrepancy'
-            else:
-                resolution_status = 'Resolved'
-        else:
-            resolution_status = 'Unresolved'
+    except Error as e:
+        print(f"check_and_update_discrepancies error: {e}")
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 
-        if resolution_status == "Unresolved" or resolution_status == "No Discrepancy":
-            reconciled_balance = None
 
-        if discrepancy_result['is_discrepancy']:
-            try:
-                insert_query = """
-                    INSERT INTO reconciliation_records (
-                        reconciliation_id,
-                        transaction_id,
-                        discrepancy_category,
-                        transaction_date,
-                        payment_reference,
-                        amount,
-                        status,
-                        gateway_status,
-                        discrepancy_amount,
-                        root_cause,
-                        assigned_to,
-                        resolution_status,
-                        balance,
-                        reconciled_balance
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                    )
-                """
+async def process_transaction(transaction_data, cursor, connection, is_update=False):
+    transaction = transaction_data # Rename for consistency
+    discrepancy_result = detect_discrepancy(transaction['transaction_id'])
 
-                cursor.execute(insert_query, (
-                    str(uuid.uuid4()),
-                    transaction.get('transaction_id'), 
-                    discrepancy_result.get('discrepancy_category', ''),  
-                    transaction.get('transaction_date'),  
-                    transaction.get('payment_reference', ''),  
-                    transaction.get('amount'),  
-                    transaction.get('transaction_status'),  
-                    gateway_status,  
-                    discrepancy_amount,  
-                    discrepancy_result.get('root_cause', '').get('analysis', ''),  
-                    None,  
-                    resolution_status,
-                    transaction.get('amount'),  
-                    reconciled_balance  
-                ))
+    # Get gateway status and amount
+    cursor.execute("""
+        SELECT * FROM payment_logs
+        WHERE transaction_id = %s
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """, (transaction['transaction_id'],))
+    gateway_status_result = cursor.fetchone()
+    gateway_status = gateway_status_result.get('gateway_status') if gateway_status_result else None
+    gateway_amount = gateway_status_result.get('gateway_amount') if gateway_status_result else None
 
-                connection.commit()
-            except Exception as e:
-                print(f"Error inserting data: {e}")
-        else:
-            try:
-                insert_query = """
-                    INSERT INTO reconciliation_records (
-                        reconciliation_id,
-                        transaction_id,
-                        transaction_date,
-                        payment_reference,
-                        amount,
-                        status,
-                        gateway_status,
-                        assigned_to,
-                        resolution_status,
-                        balance,
-                        reconciled_balance
-                    )
-                    VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                    )
-                """
+    discrepancy_amount = abs(float(transaction.get('amount', 0)) - float(gateway_amount or 0)) if gateway_amount is not None else -1
 
-                cursor.execute(insert_query, (
-                    str(uuid.uuid4()),
-                    transaction.get('transaction_id'),
-                    transaction.get('transaction_date'),
-                    transaction.get('payment_reference', ''),
-                    transaction.get('amount'),
-                    transaction.get('transaction_status'),
-                    gateway_status,
-                    None,
-                    resolution_status,
-                    transaction.get('amount'),
-                    reconciled_balance
-                ))
+    reconciled_balance = gateway_amount if gateway_amount is not None else None
 
-                connection.commit()
-            except Exception as e:
-                print(f"Error inserting data: {e}")
-        print("Data Inserted")
-    
-    # Check for unresolved reconciliations
-    query = """
-        SELECT r.*, t.* FROM reconciliation_records r
-        JOIN transactions t ON r.transaction_id = t.transaction_id
-        WHERE r.resolution_status = 'Unresolved'
-    """
-    cursor.execute(query)
-    unresolved_reconciliations = cursor.fetchall()
-    
-    for reconciliation in unresolved_reconciliations:
-        # Get gateway status from payment logs
-        gateway_status_query = """
-            SELECT * FROM payment_logs
-            WHERE transaction_id = %s
-            ORDER BY timestamp DESC
-            LIMIT 1
-        """
-        cursor.execute(gateway_status_query, (reconciliation['transaction_id'],))
-        gateway_status_result = cursor.fetchone()
-        gateway_status = gateway_status_result.get('gateway_status') if gateway_status_result else None
+    # Determine resolution status
+    if gateway_status == "Success" and transaction.get('transaction_status') == "Success":
+        resolution_status = 'No Discrepancy' if discrepancy_amount == 0 else 'Resolved'
+    else:
+        resolution_status = 'Unresolved'
 
-        if gateway_status_result is None:
-            gateway_amount = None
-        else:
-            gateway_amount = float(gateway_status_result.get('gateway_amount', None))
+    if resolution_status == "Unresolved" or resolution_status == "No Discrepancy":
+        reconciled_balance = None  # Reset if not resolved
 
-        if gateway_amount is None or gateway_status_result != "Success":
-            discrepancy_amount = -1
-        else:
-            discrepancy_amount = abs(float(reconciliation.get('amount')) - gateway_amount)
-
-        # Set reconciled_balance to gateway_amount if available
-        reconciled_balance = gateway_amount if gateway_amount is not None else None
-
-        # Determine resolution status based on new conditions
-        if gateway_status == "Success" and reconciliation.get('transaction_status') == "Success":
-            if discrepancy_amount == 0:
-                resolution_status = 'No Discrepancy'
-            else:
-                resolution_status = 'Resolved'
-        else:
-            resolution_status = 'Unresolved'
-
-        if discrepancy_result['is_discrepancy']:
+    try:
+        if is_update:
             update_query = """
-                UPDATE reconciliation_records
-                SET 
-                    discrepancy_category = %s,
-                    status = %s,
-                    gateway_status = %s,
-                    discrepancy_amount = %s,
-                    root_cause = %s,
-                    resolution_status = %s,
-                    balance = %s,
-                    reconciled_balance = %s
+                UPDATE reconciliation_records SET 
+                    discrepancy_category = %s, status = %s, gateway_status = %s,
+                    discrepancy_amount = %s, root_cause = %s, resolution_status = %s,
+                    balance = %s, reconciled_balance = %s
                 WHERE reconciliation_id = %s
             """
             cursor.execute(update_query, (
-                discrepancy_result.get('discrepancy_category', ''),
-                reconciliation.get('transaction_status'),
-                gateway_status,
-                discrepancy_amount,
-                discrepancy_result.get('root_cause', '').get('analysis', ''),
-                resolution_status,
-                reconciliation.get('amount'),
-                reconciled_balance,
-                reconciliation['reconciliation_id']
+                discrepancy_result.get('discrepancy_category'), transaction.get('transaction_status'), gateway_status,
+                discrepancy_amount, discrepancy_result.get('root_cause', {}).get('analysis'), resolution_status,
+                transaction.get('amount'), reconciled_balance, transaction['reconciliation_id']
             ))
-            connection.commit()
-        else:
-            update_query = """
-                UPDATE reconciliation_records
-                SET 
-                    discrepancy_category = NULL,
-                    status = %s,
-                    gateway_status = %s,
-                    discrepancy_amount = %s,
-                    root_cause = NULL,
-                    resolution_status = %s,
-                    balance = %s,
-                    reconciled_balance = %s
-                WHERE reconciliation_id = %s
+
+        else:  # Insert new record
+            insert_query = """
+                INSERT INTO reconciliation_records (
+                    reconciliation_id, transaction_id, discrepancy_category, transaction_date,
+                    payment_reference, amount, status, gateway_status, discrepancy_amount,
+                    root_cause, assigned_to, resolution_status, balance, reconciled_balance
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            cursor.execute(update_query, (
-                reconciliation.get('transaction_status'),
-                gateway_status,
-                discrepancy_amount,
-                resolution_status,
-                reconciliation.get('amount'),
-                reconciled_balance,
-                reconciliation['reconciliation_id']
+            cursor.execute(insert_query, (
+                str(uuid.uuid4()), transaction.get('transaction_id'), discrepancy_result.get('discrepancy_category'),
+                transaction.get('transaction_date'), transaction.get('payment_reference'), transaction.get('amount'),
+                transaction.get('transaction_status'), gateway_status, discrepancy_amount,
+                discrepancy_result.get('root_cause', {}).get('analysis'), None, resolution_status,
+                transaction.get('amount'), reconciled_balance
             ))
-            connection.commit()
-    
-    cursor.close()
-    connection.close()
+        connection.commit()
+
+    except Error as e:
+        print(f"Error processing transaction: {e}")
+        connection.rollback()  # Important: Rollback on error
+        raise # Reraise the exception after rollback
+
+
+async def generate_reconciliation_summary(cursor, connection, transaction_id=None):  # Add transaction_id parameter
+    try:
+        if transaction_id:  # Generate summary for a specific transaction
+            cursor.execute("""
+                SELECT * FROM reconciliation_records 
+                WHERE transaction_id = %s 
+                ORDER BY transaction_date DESC LIMIT 10
+            """, (transaction_id,)) # Add WHERE clause
+            last_10_records = cursor.fetchall()
+        else:
+            cursor.execute("SELECT * FROM reconciliation_records ORDER BY transaction_date DESC LIMIT 10")
+            last_10_records = cursor.fetchall()
+
+        if last_10_records: # Check if there are any records
+            discrepancy_count = sum(1 for record in last_10_records if record['discrepancy_category'] is not None)
+            resolved_count = sum(1 for record in last_10_records if record['resolution_status'] in ('Resolved', 'No Discrepancy'))
+            resolution_rate = (resolved_count / len(last_10_records)) * 100 if last_10_records else 0
+
+            summary_data = {
+                'summary_id': str(uuid.uuid4()),
+                'timestamp': datetime.now(),
+                'total_transactions': len(last_10_records),  # Summarizing the selected records
+                'discrepancy_count': discrepancy_count,
+                'resolution_rate': resolution_rate,
+            }
+
+            insert_reconciliation_summary(summary_data)
+        else:
+            print("No records found for generating summary")
+
+    except Error as e:
+        print(f"Error generating summary: {e}")
+        raise
 
 
 @app.get("/reconcile_data")
@@ -798,13 +784,70 @@ def get_discrepancy_cases():
         cursor.close()
         connection.close()
         
+class ReconciliationSummary(BaseModel):
+    summary_id: str
+    timestamp: datetime
+    total_transactions: int
+    discrepancy_count: int
+    resolution_rate: float
+    # Add other summary fields as needed
+
+def insert_reconciliation_summary(summary_data: dict):
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    try:
+        insert_query = """
+            INSERT INTO reconciliation_summaries (
+                summary_id, timestamp, total_transactions, discrepancy_count, resolution_rate
+            ) VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(insert_query, (
+            summary_data['summary_id'], summary_data['timestamp'], summary_data['total_transactions'],
+            summary_data['discrepancy_count'], summary_data['resolution_rate']
+        ))
+        connection.commit()
+    except Exception as e:
+        connection.rollback()
+        print(f"Error inserting reconciliation summary: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+@app.get("/reconciliation_summaries")
+async def get_reconciliation_summaries(
+    limit: int = Query(10, description="Number of summaries to retrieve")
+):
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        # Get the last 'limit * 10' reconciliation records to provide context to the LLM
+        cursor.execute(f"SELECT * FROM reconciliation_records ORDER BY transaction_date DESC LIMIT {limit * 10}")
+        reconciliation_records = cursor.fetchall()
+
+        llm_summary = await generate_llm_summary(reconciliation_records)
+        return {"summary": llm_summary}  # Return only the LLM summary
+
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching reconciliation summaries: {str(e)}")
+    finally:
+        cursor.close()
+        connection.close()
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await create_reconciliation_summaries_table()
+    except Exception as e:  # Catch exceptions from table creation
+        print(f"Startup failed: {e}")
+
 def fetch_data():
     try:
         conn = mysql.connector.connect(
-            host="10.10.240.93",
+            host="127.0.0.1",
             user="app_user",
             password="app_password",
-            database="payment_resolution"
+            database="trading_platform",
+            port=3307
         )
         cursor = conn.cursor()
           
@@ -860,11 +903,11 @@ def create_table_if_not_exists(cursor, table_name, df):
 def upload_csv_to_mysql(file: UploadFile):
     try:
         conn = mysql.connector.connect(
-            host="10.10.240.93",
+            host="127.0.0.1",
             user="app_user",
             password="app_password",
-            database="payment_resolution",
-            port=3306
+            database="trading_platform",
+            port=3307
         )
         cursor = conn.cursor()
 
