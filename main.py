@@ -931,7 +931,7 @@ async def startup_event():
     except Exception as e:  # Catch exceptions from table creation
         print(f"Startup failed: {e}")
 
-def fetch_data():
+def fetch_four_tables():
     try:
         conn = mysql.connector.connect(
             host="127.0.0.1",
@@ -969,9 +969,51 @@ def fetch_data():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.get("/fetch_table")
-def get_data():
-    data = fetch_data()
+def fetch_three_tables():
+    try:
+        conn = mysql.connector.connect(
+            host="127.0.0.1",
+            user="app_user",
+            password="app_password",
+            database="trading_platform",
+            port=3307
+        )
+        cursor = conn.cursor()
+          
+        # Mapping database table names to readable categories
+        table_mapping = {
+            "crypto_payment_logs": "Cryptocurrency",
+            "ewallet_payment_logs": "E-Wallet",
+            "fpx_payment_logs": "FPX"
+        }        
+        results = []
+
+        for table, category in table_mapping.items():
+            query = f"SELECT * FROM {table} LIMIT 5;"
+            cursor.execute(query)
+
+            # Fetch column names
+            columns = [desc[0] for desc in cursor.description]
+
+            # Fetch rows and convert to dict
+            rows = cursor.fetchall()
+            results.append({category: [dict(zip(columns, row)) for row in rows]})
+
+        cursor.close()
+        conn.close()
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/fetch_four_tables")
+def get_four_tables():
+    data = fetch_four_tables()
+    return data
+
+@app.get("/fetch_three_tables")
+def get_three_tables():
+    data = fetch_three_tables()
     return data
 
 def create_table_if_not_exists(cursor, table_name, df):
