@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, HTTPException, UploadFile, File
 import traceback
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from together import Together
 import uuid
 import uvicorn
@@ -16,6 +16,7 @@ from decimal import Decimal
 from dotenv import load_dotenv
 import pandas as pd
 import io
+import tiktoken
 # from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
@@ -142,22 +143,40 @@ def search_internet(query: str) -> str:
             return "\n".join([result['snippet'] for result in data['organic']])
     return "No results found."
 
+def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
+    """Count the number of tokens in a text string."""
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
+    except KeyError:
+        # Fallback to cl100k_base encoding if model not found
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return len(encoding.encode(text))
+
 def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> dict:
+    # Construct the prompt
     prompt = f"""
     Analyze the given transaction data to identify the root cause of a potential financial discrepancy. Consider the transaction status, amount, currency, and gateway code, as well as any available payment log information.
-
     Key Data Points:
     - Transaction amount and currency: {transaction['amount']} {transaction['currency']}
     - Transaction status: {transaction['transaction_status']}
     - Payment log status: {payment_log.get('gateway_status', 'No log') if payment_log else 'Not available'}
-
     Search Results:
     {search_internet(f"{transaction['transaction_status']} {transaction['amount']} {transaction['currency']} discrepancy")}
-
     Provide a concise analysis in the following format:
-    The root cause of the discrepancy is likely [root cause], based on [key evidence]. Confidence level: [High/Medium/Low]. 
+    The root cause of the discrepancy is likely [root cause], based on [key evidence]. Confidence level: [High/Medium/Low].
     Then, provide 1-2 critical next steps as recommendations in a short paragraph.
     """
+
+    # Initialize token counters
+    token_counts = {
+        "system_prompt": count_tokens("You are a payment forensic analyst. Use systematic multi-step reasoning. Consider multiple angles before concluding."),
+        "user_prompt": count_tokens(prompt),
+        "total_input": 0,
+        "response": 0
+    }
+    
+    token_counts["total_input"] = token_counts["system_prompt"] + token_counts["user_prompt"]
 
     try:
         response = client.chat.completions.create(
@@ -167,19 +186,37 @@ def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> dic
                 {"role": "user", "content": prompt}
             ]
         )
+        
         analysis = response.choices[0].message.content
+        token_counts["response"] = count_tokens(analysis)
+        
+        # Print token usage information
+        print("\nToken Usage Breakdown:")
+        print(f"System Prompt: {token_counts['system_prompt']} tokens")
+        print(f"User Prompt: {token_counts['user_prompt']} tokens")
+        print(f"Response: {token_counts['response']} tokens")
+        print(f"Total Input: {token_counts['total_input']} tokens")
+        print(f"Total Tokens: {token_counts['total_input'] + token_counts['response']} tokens")
+        
         parts = analysis.split("\n\n")
         analysis_text = parts[0]
         recommendation_text = parts[1].strip()
+        
         if recommendation_text.startswith("Recommendation:") or recommendation_text.startswith("Next steps:"):
             recommendation_text = recommendation_text.split(":")[1].strip()
+        
         return {
             "analysis": analysis_text,
             "recommendation": recommendation_text
         }
     except Exception as e:
+        print("\nToken Usage (Error Case):")
+        print(f"Input Tokens: {token_counts['total_input']}")
+        error_message = "Analysis error: unable to determine root cause"
+        print(f"Error Message Tokens: {count_tokens(error_message)}")
+        
         return {
-            "analysis": "Analysis error: unable to determine root cause",
+            "analysis": error_message,
             "recommendation": "Contact the payment gateway support team for further assistance.",
             "error": str(e)
         }
@@ -198,47 +235,94 @@ def custom_serializer(obj):  # Combined custom serializer
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
+async def generate_llm_summary(reconciliation_records: List[dict]) -> Dict[str, Any]:
     if not reconciliation_records:
-        return "No reconciliation records found."
+        return {
+            "summary": "No reconciliation records found.",
+            "token_usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0
+            }
+        }
 
-    serializable_records = []
-    for record in reconciliation_records:
-        serializable_record = {}
-        for key, value in record.items():
-            if isinstance(value, datetime) or isinstance(value, Decimal):
-                serializable_record[key] = custom_serializer(value)  # Use custom serializer
-            else:
-                serializable_record[key] = value
-        serializable_records.append(serializable_record)
-
-
-    records_string = json.dumps(serializable_records, default=custom_serializer)  # Use custom serializer
-
-    prompt = f"""
-    Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
-
-    Reconciliation Records:
-    ```json
-    {records_string}
-    ```
-
-    Focus on identifying patterns and trends in the root causes.  If possible, quantify the prevalence of each root cause (e.g., "Amount Mismatch accounted for 60% of discrepancies").  Be concise.
-    """
+    # Initialize token counters
+    token_counts = {
+        "system_prompt": await count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
+        "records_tokens": 0,
+        "prompt_template_tokens": 0,
+        "total_input": 0,
+        "response": 0
+    }
 
     try:
-        response = client.chat.completions.create(
-            model="deepseek-ai/DeepSeek-V3",  # Or another suitable LLM
+        # Serialize records
+        serializable_records = []
+        for record in reconciliation_records:
+            serializable_record = {}
+            for key, value in record.items():
+                if isinstance(value, (datetime, Decimal)):
+                    serializable_record[key] = custom_serializer(value)
+                else:
+                    serializable_record[key] = value
+            serializable_records.append(serializable_record)
+
+        records_string = json.dumps(serializable_records, default=custom_serializer)
+        token_counts["records_tokens"] = await count_tokens(records_string)
+
+        prompt = f"""
+        Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
+        Reconciliation Records:
+        ```json
+        {records_string}
+        ```
+        Focus on identifying patterns and trends in the root causes. If possible, quantify the prevalence of each root cause (e.g., "Amount Mismatch accounted for 60% of discrepancies"). Be concise.
+        """
+
+        # Count tokens in the prompt template (excluding the records)
+        prompt_template = prompt.replace(records_string, "")
+        token_counts["prompt_template_tokens"] = await count_tokens(prompt_template)
+        
+        # Calculate total input tokens
+        token_counts["total_input"] = (
+            token_counts["system_prompt"] +
+            token_counts["records_tokens"] +
+            token_counts["prompt_template_tokens"]
+        )
+
+        response = await client.chat.completions.create(
+            model="deepseek-ai/DeepSeek-V3",
             messages=[
                 {"role": "system", "content": "You are a payment forensic analyst summarizing reconciliation data."},
                 {"role": "user", "content": prompt}
             ]
         )
+
         summary = response.choices[0].message.content
-        return summary
+        token_counts["response"] = await count_tokens(summary)
+
+        return {
+            "summary": summary,
+            "token_usage": {
+                "input_tokens": token_counts["total_input"],
+                "output_tokens": token_counts["response"],
+                "total_tokens": token_counts["total_input"] + token_counts["response"],
+                "detailed_breakdown": token_counts
+            }
+        }
+
     except Exception as e:
-        print(f"LLM summarization error: {e}")
-        return f"Error generating summary: {e}"
+        error_message = f"Error generating summary: {e}"
+        return {
+            "summary": error_message,
+            "token_usage": {
+                "input_tokens": token_counts["total_input"],
+                "output_tokens": await count_tokens(error_message),
+                "total_tokens": token_counts["total_input"] + await count_tokens(error_message),
+                "detailed_breakdown": token_counts,
+                "error": str(e)
+            }
+        }
 
 def get_duplicate_payments(transaction_id: str) -> List[dict]:
     # Check for duplicate payments in the payment log
