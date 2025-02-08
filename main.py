@@ -1099,7 +1099,7 @@ def upload_csv_to_mysql(file: UploadFile):
 
         print("CSV Loaded Successfully:\n", df.head())  # Debugging log
 
-        table_name = "uploaded_data"
+        table_name = "mobile_payment_logs"
 
         df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
