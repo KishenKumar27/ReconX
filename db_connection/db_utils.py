@@ -5,11 +5,11 @@ from mysql.connector import Error
 def upload_to_mysql(dataframe, table_name):
     try:
         db_config = {
-            'host': '127.0.0.1',
+            'host': '10.10.240.93',
             'user': 'app_user',
             'password': 'app_password',
-            'database': 'trading_platform',
-            'port': 3307
+            'database': 'payment_resolution',
+            'port': 3306
         }
         
         # Establish a connection to the MySQL database

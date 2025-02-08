@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, UploadFile, File
+import traceback
 from pydantic import BaseModel
 from typing import Optional, List
 from together import Together
@@ -21,9 +22,9 @@ client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 # MySQL Database configuration
 DB_USER = os.getenv("DB_USER", "app_user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "app_password")
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
-DB_PORT = os.getenv("DB_PORT", "3307")
-DB_NAME = os.getenv("DB_NAME", "trading_platform")
+DB_HOST = os.getenv("DB_HOST", "10.10.240.93")
+DB_PORT = os.getenv("DB_PORT", "3306")
+DB_NAME = os.getenv("DB_NAME", "payment_resolution")
 
 # SerpAPI configuration
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
@@ -794,7 +795,119 @@ def get_discrepancy_cases():
     finally:
         cursor.close()
         connection.close()
+        
+def fetch_data():
+    try:
+        conn = mysql.connector.connect(
+            host="10.10.240.93",
+            user="app_user",
+            password="app_password",
+            database="payment_resolution"
+        )
+        cursor = conn.cursor()
+          
+        tables = ["crypto_payment_logs", "ewallet_payment_logs", "fpx_payment_logs"]
+        results = {}
 
+        for table in tables:
+            query = f"SELECT * FROM {table} LIMIT 5;"
+            cursor.execute(query)
+
+            # Fetch column names
+            columns = [desc[0] for desc in cursor.description]
+
+            # Fetch rows and convert to dict
+            rows = cursor.fetchall()
+            results[table] = [dict(zip(columns, row)) for row in rows]
+
+        conn.close()
+        return results
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/fetch_table")
+def get_data():
+    data = fetch_data()
+    return {"data": data}
+
+def create_table_if_not_exists(cursor, table_name, df):
+    """Dynamically create a table based on CSV columns if it does not exist."""
+    column_types = []
+    
+    for col in df.columns:
+        col_name = col.strip().replace(" ", "_")  # Clean column name
+        sample_value = df[col].dropna().astype(str).head(1).values
+        
+        # Determine column type
+        if sample_value.size > 0:
+            if sample_value[0].isdigit():
+                column_type = "INT"
+            else:
+                column_type = "VARCHAR(255)"
+        else:
+            column_type = "VARCHAR(255)"  # Default type
+        
+        column_types.append(f"{col_name} {column_type}")
+
+    columns_sql = ", ".join(column_types)
+    create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_sql});"
+    
+    cursor.execute(create_table_query)
+
+def upload_csv_to_mysql(file: UploadFile):
+    try:
+        conn = mysql.connector.connect(
+            host="127.0.0.1",
+            user="root",
+            password="root_password",
+            database="mysql"
+        )
+        cursor = conn.cursor()
+
+        contents = file.file.read()
+        try:
+            df = pd.read_csv(io.StringIO(contents.decode("utf-8", errors="ignore")))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"CSV Format Error: {str(e)}")
+
+        if df.empty:
+            raise HTTPException(status_code=400, detail="CSV file is empty.")
+
+        print("CSV Loaded Successfully:\n", df.head())  # Debugging log
+
+        table_name = "uploaded_data"
+
+        df.columns = [col.strip().replace(" ", "_") for col in df.columns]
+
+        create_table_if_not_exists(cursor, table_name, df)
+
+        # Insert data into MySQL
+        columns = ", ".join(df.columns)
+        values_placeholder = ", ".join(["%s"] * len(df.columns))
+        insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
+
+        for _, row in df.iterrows():
+            cursor.execute(insert_query, tuple(row))
+
+        conn.commit()
+        conn.close()
+        return {"message": "CSV uploaded successfully"}
+
+    except HTTPException as http_ex:
+        raise http_ex  # Re-raise HTTP exceptions
+
+    except Exception as e:
+        print("Error Occurred:", traceback.format_exc())  # Print full error traceback
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+@app.post("/upload_csv")
+def upload_csv(file: UploadFile = File(...)):
+    return upload_csv_to_mysql(file)
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000)
 
 async def run_schedule():
     while True:
