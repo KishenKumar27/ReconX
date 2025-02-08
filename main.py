@@ -172,7 +172,7 @@ def generate_llm_analysis(transaction: tuple, payment_log: Optional[dict]) -> di
     Key Data Points:
     - Transaction amount and currency: {transaction[5]} {transaction[6]}
     - Transaction status: {transaction[7]}
-    - Payment log status: {payment_log.get('gateway_status', 'No log') if payment_log else 'Not available'}
+    - Payment log status: {payment_log[4] if payment_log else 'Not available'}
     Search Results:
     {search_internet(f"{transaction[7]} {transaction[5]} {transaction[6]} discrepancy")}
     Provide a concise analysis in the following format:
