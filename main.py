@@ -165,14 +165,19 @@ def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
         encoding = tiktoken.get_encoding("cl100k_base")
         return len(encoding.encode(text))
 
-def generate_llm_analysis(transaction: tuple, payment_log: Optional[dict]) -> dict:
+def generate_llm_analysis(transaction: tuple, payment_log: Optional[tuple]) -> dict:
+    try:
+        gateway_status = payment_log[4]
+    except:
+        gateway_status = "Not available"
+
     # Construct the prompt
     prompt = f"""
     Analyze the given transaction data to identify the root cause of a potential financial discrepancy. Consider the transaction status, amount, currency, and gateway code, as well as any available payment log information.
     Key Data Points:
     - Transaction amount and currency: {transaction[5]} {transaction[6]}
     - Transaction status: {transaction[7]}
-    - Payment log status: {payment_log[4] if payment_log else 'Not available'}
+    - Payment log status: {gateway_status}
     Search Results:
     {search_internet(f"{transaction[7]} {transaction[5]} {transaction[6]} discrepancy")}
     Provide a concise analysis in the following format:
