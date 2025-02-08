@@ -184,25 +184,39 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 def generate_reconciliation_records(transactions, payment_logs, config: GenerationConfig):
     reconciliations = []
     payment_log_map = {log[1]: log for log in payment_logs}
-    
+    discrepancies_found = []
+
     for tx in transactions:
         reconciliation_id = str(uuid.uuid4())
         gateway_log = payment_log_map.get(tx[0])
-        
+
         if gateway_log:
-            matched_status = "Matched"
-            discrepancy_amount = 0.00
-            discrepancy_reason = ""
+            if random.random() < 0.2:  # 20% chance of discrepancy
+                discrepancy_amount = round(tx[5] * random.uniform(0.01, 0.1), 2)  # 1% to 10% discrepancy
+                matched_status = "Partial"
+                discrepancy_reason = "Amount mismatch"
+                discrepancies_found.append((tx[0], discrepancy_amount))
+            else:
+                matched_status = "Matched"
+                discrepancy_amount = 0.00
+                discrepancy_reason = ""
         else:
             matched_status = "Unmatched"
             discrepancy_amount = tx[5]
             discrepancy_reason = "Payment not found"
-        
+            discrepancies_found.append((tx[0], discrepancy_amount))
+
         reconciliations.append([
             reconciliation_id, tx[0], gateway_log[3] if gateway_log else "N/A",
             matched_status, discrepancy_amount, discrepancy_reason,
             "system", datetime.now()
         ])
+
+    # Print transactions with discrepancies
+    print("\nTransactions with discrepancies:")
+    for tx_id, amount in discrepancies_found:
+        print(f"Transaction ID: {tx_id}, Discrepancy Amount: {amount}")
+
     return reconciliations
 
 def generate_refund_chargebacks(transactions, config: GenerationConfig):
