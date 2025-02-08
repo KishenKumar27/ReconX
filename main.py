@@ -92,7 +92,7 @@ def get_payment_log_by_transaction_id(transaction_id: str) -> Optional[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = """
-        SELECT * FROM payment WHERE transaction_id = %s ORDER BY timestamp DESC LIMIT 1
+        SELECT * FROM payment_logs WHERE transaction_id = %s ORDER BY timestamp DESC LIMIT 1
     """
     cursor.execute(query, (transaction_id,))
     payment_log = cursor.fetchone()
@@ -162,7 +162,7 @@ def get_duplicate_payments(transaction_id: str) -> List[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = """
-        SELECT * FROM payment WHERE transaction_id = %s
+        SELECT * FROM payment_logs WHERE transaction_id = %s
     """
     cursor.execute(query, (transaction_id,))
     payment_logs = cursor.fetchall()
@@ -246,7 +246,7 @@ def reconcile(transaction_id: str):
         
         reconciled_balance_query = f"""
             SELECT COALESCE(SUM(t.amount), 0) FROM transactions t
-            JOIN payment p ON t.transaction_id = p.transaction_id
+            JOIN payment_logs p ON t.transaction_id = p.transaction_id
             WHERE t.transaction_status = 'Success' AND p.gateway_status = 'Success' AND t.amount = p.gateway_amount AND transaction_id = '{transaction_id}'
         """
         cursor.execute(reconciled_balance_query)
@@ -264,10 +264,64 @@ def reconcile(transaction_id: str):
         cursor.close()
         connection.close()
 
+# # Get all reconcile data
+# def get_reconcile_data(
+#     reconciliation_id: Optional[str] = None,
+#     transaction_id: Optional[str] = None,
+#     discrepancy_category: Optional[str] = None,
+#     transaction_date: Optional[datetime] = None,
+#     payment_reference: Optional[str] = None,
+#     amount: Optional[float] = None,
+#     status: Optional[str] = None,
+#     gateway_status: Optional[str] = None,
+#     discrepancy_amount: Optional[float] = None,
+#     root_cause: Optional[str] = None,
+#     assigned_to: Optional[str] = None,
+#     resolution_status: Optional[str] = None
+# ) -> List[dict]:
+#     connection = get_db_connection()
+#     cursor = connection.cursor(dictionary=True)
+#     query = """
+#         SELECT * FROM reconciliation_records
+#         WHERE resolution_status != 'No Discrepancy' AND
+#             (%s IS NULL OR reconciliation_id = %s) AND
+#             (%s IS NULL OR transaction_id = %s) AND
+#             (%s IS NULL OR discrepancy_category = %s) AND
+#             (%s IS NULL OR transaction_date = %s) AND
+#             (%s IS NULL OR payment_reference = %s) AND
+#             (%s IS NULL OR amount = %s) AND
+#             (%s IS NULL OR status = %s) AND
+#             (%s IS NULL OR gateway_status = %s) AND
+#             (%s IS NULL OR discrepancy_amount = %s) AND
+#             (%s IS NULL OR root_cause = %s) AND
+#             (%s IS NULL OR assigned_to = %s) AND
+#             (%s IS NULL OR resolution_status = %s)
+#     """
+#     cursor.execute(query, (
+#         reconciliation_id, reconciliation_id,
+#         transaction_id, transaction_id,
+#         discrepancy_category, discrepancy_category,
+#         transaction_date, transaction_date,
+#         payment_reference, payment_reference,
+#         amount, amount,
+#         status, status,
+#         gateway_status, gateway_status,
+#         discrepancy_amount, discrepancy_amount,
+#         root_cause, root_cause,
+#         assigned_to, assigned_to,
+#         resolution_status, resolution_status
+#     ))
+#     reconcile_data = cursor.fetchall()
+#     for data in reconcile_data:
+#         if data['transaction_date']:
+#             data['transaction_date'] = data['transaction_date'].strftime('%Y-%m-%d %H:%M:%S')
+#     cursor.close()
+#     connection.close()
+#     return reconcile_data
+
 def get_reconcile_data(
     reconciliation_id: Optional[str] = None,
     transaction_id: Optional[str] = None,
-    discrepancy_category: Optional[str] = None,
     transaction_date: Optional[datetime] = None,
     payment_reference: Optional[str] = None,
     amount: Optional[float] = None,
@@ -280,40 +334,54 @@ def get_reconcile_data(
 ) -> List[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    query = """
-        SELECT * FROM reconciliation_records
-        WHERE resolution_status != 'No Discrepancy' AND
-            (%s IS NULL OR reconciliation_id = %s) AND
-            (%s IS NULL OR transaction_id = %s) AND
-            (%s IS NULL OR discrepancy_category = %s) AND
-            (%s IS NULL OR transaction_date = %s) AND
-            (%s IS NULL OR payment_reference = %s) AND
-            (%s IS NULL OR amount = %s) AND
-            (%s IS NULL OR status = %s) AND
-            (%s IS NULL OR gateway_status = %s) AND
-            (%s IS NULL OR discrepancy_amount = %s) AND
-            (%s IS NULL OR root_cause = %s) AND
-            (%s IS NULL OR assigned_to = %s) AND
-            (%s IS NULL OR resolution_status = %s)
-    """
-    cursor.execute(query, (
-        reconciliation_id, reconciliation_id,
-        transaction_id, transaction_id,
-        discrepancy_category, discrepancy_category,
-        transaction_date, transaction_date,
-        payment_reference, payment_reference,
-        amount, amount,
-        status, status,
-        gateway_status, gateway_status,
-        discrepancy_amount, discrepancy_amount,
-        root_cause, root_cause,
-        assigned_to, assigned_to,
-        resolution_status, resolution_status
-    ))
+
+    discrepancy_categories = ['Missing Payments', 'Amount Mismatch', 'Status Mismatch', 'Duplicates']
+
+    query_parts = []
+    query_params = []
+
+    for category in discrepancy_categories:
+        query_parts.append("""
+            (SELECT * FROM reconciliation_records
+            WHERE discrepancy_category = %s
+                AND (%s IS NULL OR reconciliation_id = %s)
+                AND (%s IS NULL OR transaction_id = %s)
+                AND (%s IS NULL OR transaction_date = %s)
+                AND (%s IS NULL OR payment_reference = %s)
+                AND (%s IS NULL OR amount = %s)
+                AND (%s IS NULL OR status = %s)
+                AND (%s IS NULL OR gateway_status = %s)
+                AND (%s IS NULL OR discrepancy_amount = %s)
+                AND (%s IS NULL OR root_cause = %s)
+                AND (%s IS NULL OR assigned_to = %s)
+                AND (%s IS NULL OR resolution_status = %s)
+            ORDER BY transaction_date DESC
+            LIMIT 2)
+        """)
+        query_params.extend([
+            category,
+            reconciliation_id, reconciliation_id,
+            transaction_id, transaction_id,
+            transaction_date, transaction_date,
+            payment_reference, payment_reference,
+            amount, amount,
+            status, status,
+            gateway_status, gateway_status,
+            discrepancy_amount, discrepancy_amount,
+            root_cause, root_cause,
+            assigned_to, assigned_to,
+            resolution_status, resolution_status
+        ])
+
+    final_query = " UNION ALL ".join(query_parts)
+
+    cursor.execute(final_query, query_params)
     reconcile_data = cursor.fetchall()
+
     for data in reconcile_data:
         if data['transaction_date']:
             data['transaction_date'] = data['transaction_date'].strftime('%Y-%m-%d %H:%M:%S')
+
     cursor.close()
     connection.close()
     return reconcile_data
@@ -338,7 +406,7 @@ async def check_and_update_discrepancies():
 
         # Get gateway status from payment logs
         gateway_status_query = """
-            SELECT * FROM payment
+            SELECT * FROM payment_logs
             WHERE transaction_id = %s
             ORDER BY timestamp DESC
             LIMIT 1
@@ -351,12 +419,6 @@ async def check_and_update_discrepancies():
             gateway_amount = None
         else:
             gateway_amount = float(gateway_status_result.get('gateway_amount', None))
-
-        print(transaction)
-        print(gateway_status_result)
-        print(discrepancy_result)
-        print()
-        print()
 
         if gateway_amount is None:
             discrepancy_amount = -1
@@ -474,7 +536,7 @@ async def check_and_update_discrepancies():
     for reconciliation in unresolved_reconciliations:
         # Get gateway status from payment logs
         gateway_status_query = """
-            SELECT * FROM payment
+            SELECT * FROM payment_logs
             WHERE transaction_id = %s
             ORDER BY timestamp DESC
             LIMIT 1
@@ -575,10 +637,24 @@ def get_reconcile_data_api(
     assigned_to: Optional[str] = Query(None),
     resolution_status: Optional[str] = Query(None)
 ):
+    # return get_reconcile_data(
+    #     reconciliation_id,
+    #     transaction_id,
+    #     discrepancy_category,
+    #     transaction_date,
+    #     payment_reference,
+    #     amount,
+    #     status,
+    #     gateway_status,
+    #     discrepancy_amount,
+    #     root_cause,
+    #     assigned_to,
+    #     resolution_status
+    # )
+
     return get_reconcile_data(
         reconciliation_id,
         transaction_id,
-        discrepancy_category,
         transaction_date,
         payment_reference,
         amount,
@@ -652,7 +728,7 @@ def get_discrepancy_categories():
         cursor.execute(query)
         categories = cursor.fetchall()
         
-        result = {
+        category_mapping = {
             "Missing Payments": 0,
             "Amount Mismatch": 0,
             "Status Mismatch": 0,
@@ -661,10 +737,21 @@ def get_discrepancy_categories():
         }
         
         for category in categories:
-            if category['discrepancy_category'] in result:
-                result[category['discrepancy_category']] = category['count']
+            if category['discrepancy_category'] in category_mapping:
+                category_mapping[category['discrepancy_category']] = category['count']
             elif category['discrepancy_category'] is None:
-                result["No Discrepancy"] = category['count']
+                category_mapping["No Discrepancy"] = category['count']
+        
+        result = {
+            "xaxis": {
+                "categories": list(category_mapping.keys())
+            },
+            "series": [
+                {
+                    "data": list(category_mapping.values())
+                }
+            ]
+        }
         
         return result
         
@@ -678,12 +765,12 @@ def get_discrepancy_categories():
 def get_discrepancy_cases():
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    
+
     try:
-        today = datetime.now().date()  # Convert to date object
+        today = datetime.now().date()
         this_week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).date()
         this_month_start = datetime(datetime.now().year, datetime.now().month, 1).date()
-        
+
         query = """
             SELECT 
                 SUM(CASE WHEN transaction_date = %s THEN 1 ELSE 0 END) as today,
@@ -694,15 +781,16 @@ def get_discrepancy_cases():
         """
         cursor.execute(query, (today, this_week_start, this_month_start))
         result = cursor.fetchone()
-        
-        return {
-            "today": result['today'] or 0,
-            "this_week": result['this_week'] or 0,
-            "this_month": result['this_month'] or 0
-        }
-        
+
+        return [
+            {"id": 1, "type": "Today", "total": f"{result['today']:,}"},
+            {"id": 2, "type": "This Week", "total": f"{result['this_week']:,}"},
+            {"id": 3, "type": "This Month", "total": f"{result['this_month']:,}"}
+        ]
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching discrepancy cases: {str(e)}")
+
     finally:
         cursor.close()
         connection.close()
