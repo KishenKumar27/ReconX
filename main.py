@@ -60,10 +60,6 @@ class PaymentLog(BaseModel):
     gateway_status: str
     timestamp: datetime
 
-class ReconcileRequest(BaseModel):
-    discrepancy_category: str
-    possible_root_cause: str
-    transaction_id: str
 
 def get_transaction_by_id(transaction_id: str) -> Optional[dict]:
     connection = get_db_connection()
@@ -159,6 +155,31 @@ def get_duplicate_payments(transaction_id: str) -> List[dict]:
     connection.close()
     return payment_logs if len(payment_logs) > 1 else []
 
+def get_duplicate_transactions(transaction_id: str):
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    
+    query = """
+        SELECT * FROM transactions
+        WHERE payment_reference = (
+            SELECT payment_reference FROM transactions
+            WHERE transaction_id = %s
+        ) AND transaction_id != %s
+    """
+    cursor.execute(query, (transaction_id, transaction_id))
+    duplicate_transactions = cursor.fetchall()
+    
+    if duplicate_transactions:
+        return [
+            {
+                "transaction_id": transaction[0],
+                "amount": transaction[5],
+                "status": transaction[7]
+            } for transaction in duplicate_transactions
+        ]
+    else:
+        return None
+
 @app.get("/detect_discrepancy")
 def detect_discrepancy(transaction_id: str = Query(..., description="Transaction ID to check")):
     transaction = get_transaction_by_id(transaction_id)
@@ -238,3 +259,8 @@ def reconcile(transaction_id: str, discrepancy_category: str, possible_root_caus
     finally:
         cursor.close()
         connection.close()
+
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False, workers=1)
