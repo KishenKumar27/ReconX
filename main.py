@@ -8,7 +8,7 @@ from src.core.analyzer import ForexSentimentAnalyzer
 from src.core.dispute_analyzer import DisputeAnalyzer
 from src.modules.forex_sentiment import router as forex_sentiment_router
 from src.modules.report_trade import router as report_dispute_router
-from src.modules.ss_dispute_status import router as dispute_status_router
+from src.modules.dispute_status_stream_logs import router as dispute_status_router
 
 from vers import version
 

@@ -57,8 +57,8 @@ def insert_forex_data(connection):
 
     # Insert sample data into the Dispute table
     disputes = [
-        (1, 1, "Trade executed at incorrect exchange rate", "execution_error", "pending"),
-        (2, 1, "Settlement failed due to missing document", "settlement_error", "resolved")
+        (1, 1, "Trade executed at incorrect exchange rate", "Trading's Hub", "pending"),
+        (2, 1, "Settlement failed due to missing document", "Trading's Hub", "resolved")
     ]
     cursor.executemany(
         "INSERT INTO Dispute (trade_id, reported_by, dispute_description, dispute_type, status) VALUES (%s, %s, %s, %s, %s)",

@@ -6,7 +6,7 @@ from db_connection.db_utils import (
     insert_log
 )
 from datetime import datetime
-
+from src.core.dispute_analyzer import DisputeAnalyzer
 
 router = APIRouter()
 
@@ -20,6 +20,10 @@ def report_dispute(
     ):
     insert_or_update_dispute(input_data.trade_id, 1, input_data.description, "pending", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))  # Current timestamp
     insert_log(input_data.trade_id, "Dispute reported by forex_trader", 1, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))  # Current timestamp
+    dispute_analyzer = DisputeAnalyzer()
+    category_name = dispute_analyzer.identify_category(input_data.description)
+    print(category_name)
+    
     
     return {
         "status": "success",

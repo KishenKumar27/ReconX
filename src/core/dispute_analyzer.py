@@ -1,6 +1,6 @@
 import os
 import openai
-
+from src.prompt.identify_category import category_system_prompt
 
 class DisputeAnalyzer():
     def __init__(self):
@@ -13,14 +13,16 @@ class DisputeAnalyzer():
         
     def identify_category(self, message: str):
         response = self.client.chat.completions.create(
-        model=self.model,
-        messages=[
-            {"role": "system", "content": "You are a travel agent. Be descriptive and helpful."},
-            {"role": "user", "content": "Tell me the top 3 things to do in San Francisco"},
-        ]
+            model=self.model,
+            messages=[
+                {"role": "system", "content": category_system_prompt},
+                {"role": "user", "content": message}
+            ],
+            temperature=0.0
         )
 
-        print(response.choices[0].message.content)
-
-    
+        return (response.choices[0].message.content)
         
+if __name__ == "__main__":
+    import src.prompt
+    print(dir(src.prompt))  # This will show all accessible attributes in src.prompt

@@ -13,15 +13,6 @@ router = APIRouter()
 class DisputeStatusResponse(BaseModel):
     dispute_id: int
 
-# AI Analysis Simulation
-def generate_ai_analysis():
-    return {
-        "type": "return",
-        "Analysis": "The trade was executed at 1.2000, while the order was placed at 1.1950. This discrepancy indicates an Execution Error, likely caused by a system glitch or slippage.",
-        "Dispute Category": "Execution Error",
-        "Recommended Resolution": "Re-execute the trade at the correct price of 1.1950. Compensate the trader for the loss incurred due to the incorrect execution."
-    }
-
 # Function to convert datetime to string
 def convert_datetime_to_str(data):
     if isinstance(data, datetime):
