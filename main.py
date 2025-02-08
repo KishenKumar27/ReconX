@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 import pandas as pd
 import io
 import tiktoken
+from functools import partial
 # from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
@@ -235,20 +236,30 @@ def custom_serializer(obj):  # Combined custom serializer
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-async def generate_llm_summary(reconciliation_records: List[dict]) -> Dict[str, Any]:
+async def async_count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
+    """
+    Asynchronously count the number of tokens in a text string.
+    Uses an executor to avoid blocking on CPU-intensive tokenization.
+    """
+    def _count_tokens(text: str, model: str) -> int:
+        try:
+            encoding = tiktoken.encoding_for_model(model)
+            return len(encoding.encode(text))
+        except KeyError:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            return len(encoding.encode(text))
+    
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, partial(_count_tokens, text, model))
+
+async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
     if not reconciliation_records:
-        return {
-            "summary": "No reconciliation records found.",
-            "token_usage": {
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0
-            }
-        }
+        print("Token usage: 0 (no records to process)")
+        return "No reconciliation records found."
 
     # Initialize token counters
     token_counts = {
-        "system_prompt": await count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
+        "system_prompt": await async_count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
         "records_tokens": 0,
         "prompt_template_tokens": 0,
         "total_input": 0,
@@ -268,7 +279,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> Dict[str, 
             serializable_records.append(serializable_record)
 
         records_string = json.dumps(serializable_records, default=custom_serializer)
-        token_counts["records_tokens"] = await count_tokens(records_string)
+        token_counts["records_tokens"] = await async_count_tokens(records_string)
 
         prompt = f"""
         Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
@@ -281,7 +292,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> Dict[str, 
 
         # Count tokens in the prompt template (excluding the records)
         prompt_template = prompt.replace(records_string, "")
-        token_counts["prompt_template_tokens"] = await count_tokens(prompt_template)
+        token_counts["prompt_template_tokens"] = await async_count_tokens(prompt_template)
         
         # Calculate total input tokens
         token_counts["total_input"] = (
@@ -299,30 +310,26 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> Dict[str, 
         )
 
         summary = response.choices[0].message.content
-        token_counts["response"] = await count_tokens(summary)
+        token_counts["response"] = await async_count_tokens(summary)
 
-        return {
-            "summary": summary,
-            "token_usage": {
-                "input_tokens": token_counts["total_input"],
-                "output_tokens": token_counts["response"],
-                "total_tokens": token_counts["total_input"] + token_counts["response"],
-                "detailed_breakdown": token_counts
-            }
-        }
+        # Print token usage information
+        print("\nToken Usage Breakdown:")
+        print(f"System Prompt: {token_counts['system_prompt']} tokens")
+        print(f"Records Data: {token_counts['records_tokens']} tokens")
+        print(f"Prompt Template: {token_counts['prompt_template_tokens']} tokens")
+        print(f"Response: {token_counts['response']} tokens")
+        print(f"Total Input: {token_counts['total_input']} tokens")
+        print(f"Total Tokens: {token_counts['total_input'] + token_counts['response']} tokens")
+
+        return summary
 
     except Exception as e:
         error_message = f"Error generating summary: {e}"
-        return {
-            "summary": error_message,
-            "token_usage": {
-                "input_tokens": token_counts["total_input"],
-                "output_tokens": await count_tokens(error_message),
-                "total_tokens": token_counts["total_input"] + await count_tokens(error_message),
-                "detailed_breakdown": token_counts,
-                "error": str(e)
-            }
-        }
+        print(f"\nToken Usage (Error Case):")
+        print(f"Input Tokens: {token_counts['total_input']}")
+        error_tokens = await async_count_tokens(error_message)
+        print(f"Error Message Tokens: {error_tokens}")
+        return error_message
 
 def get_duplicate_payments(transaction_id: str) -> List[dict]:
     # Check for duplicate payments in the payment log
