@@ -1012,6 +1012,32 @@ def fetch_three_tables():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+def fetch_consolidated_data():
+    try:
+        conn = mysql.connector.connect(
+            host="127.0.0.1",
+            user="app_user",
+            password="app_password",
+            database="trading_platform",
+            port=3307
+        )
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM payment_logs LIMIT 5;"
+        cursor.execute(query)
+
+        # Fetch column names
+        columns = [desc[0] for desc in cursor.description]
+        # Fetch rows and return as list of dicts
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        
+        return rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn.is_connected():
+            conn.close()
+    
 @app.get("/fetch_four_tables")
 def get_four_tables():
     data = fetch_four_tables()
@@ -1020,6 +1046,11 @@ def get_four_tables():
 @app.get("/fetch_three_tables")
 def get_three_tables():
     data = fetch_three_tables()
+    return data
+    
+@app.get("/fetch_consolidated_table")
+def get_consolidated_data():
+    data = fetch_consolidated_data()
     return data
 
 def create_table_if_not_exists(cursor, table_name, df):
