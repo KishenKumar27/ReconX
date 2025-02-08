@@ -18,6 +18,7 @@ import pandas as pd
 import io
 import tiktoken
 from functools import partial
+import aiomysql
 # from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
@@ -119,6 +120,16 @@ def get_transaction_by_id(transaction_id: str) -> Optional[dict]:
     connection.close()
     return transaction
 
+async def async_get_transaction_by_id(cursor, connection, transaction_id: str) -> Optional[dict]:
+    query = """
+        SELECT * FROM transactions WHERE transaction_id = %s
+    """
+
+    await cursor.execute(query, (transaction_id,))
+    transaction = await cursor.fetchone()
+
+    return transaction
+
 def get_payment_log_by_transaction_id(transaction_id: str) -> Optional[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -154,16 +165,16 @@ def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
         encoding = tiktoken.get_encoding("cl100k_base")
         return len(encoding.encode(text))
 
-def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> dict:
+def generate_llm_analysis(transaction: tuple, payment_log: Optional[dict]) -> dict:
     # Construct the prompt
     prompt = f"""
     Analyze the given transaction data to identify the root cause of a potential financial discrepancy. Consider the transaction status, amount, currency, and gateway code, as well as any available payment log information.
     Key Data Points:
-    - Transaction amount and currency: {transaction['amount']} {transaction['currency']}
-    - Transaction status: {transaction['transaction_status']}
+    - Transaction amount and currency: {transaction[5]} {transaction[6]}
+    - Transaction status: {transaction[7]}
     - Payment log status: {payment_log.get('gateway_status', 'No log') if payment_log else 'Not available'}
     Search Results:
-    {search_internet(f"{transaction['transaction_status']} {transaction['amount']} {transaction['currency']} discrepancy")}
+    {search_internet(f"{transaction[7]} {transaction[5]} {transaction[6]} discrepancy")}
     Provide a concise analysis in the following format:
     The root cause of the discrepancy is likely [root cause], based on [key evidence]. Confidence level: [High/Medium/Low].
     Then, provide 1-2 critical next steps as recommendations in a short paragraph.
@@ -331,19 +342,6 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         print(f"Error Message Tokens: {error_tokens}")
         return error_message
 
-def get_duplicate_payments(transaction_id: str) -> List[dict]:
-    # Check for duplicate payments in the payment log
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    query = """
-        SELECT * FROM payment_logs WHERE transaction_id = %s
-    """
-    cursor.execute(query, (transaction_id,))
-    payment_logs = cursor.fetchall()
-    cursor.close()
-    connection.close()
-    return payment_logs if len(payment_logs) > 1 else []
-
 def get_duplicate_transactions(transaction_id: str):
     connection = get_db_connection()
     cursor = connection.cursor()
@@ -368,41 +366,6 @@ def get_duplicate_transactions(transaction_id: str):
         ]
     else:
         return None
-
-# @app.get("/detect_discrepancy")
-def detect_discrepancy(transaction_id: str = Query(..., description="Transaction ID to check")):
-    transaction = get_transaction_by_id(transaction_id)
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    
-    payment_log = get_payment_log_by_transaction_id(transaction_id)
-    discrepancy_category = None
-    is_discrepancy = False
-    
-    if not payment_log:
-        discrepancy_category = "Missing Payments"
-        is_discrepancy = True
-    elif float(transaction['amount']) != float(payment_log['gateway_amount']):
-        discrepancy_category = "Amount Mismatch"
-        is_discrepancy = True
-    elif transaction['transaction_status'] != payment_log['gateway_status']:
-        discrepancy_category = "Status Mismatch"
-        is_discrepancy = True
-
-    # Check for duplicate payments in the payment log
-    duplicate_payments = get_duplicate_payments(transaction_id)
-    if duplicate_payments and len(duplicate_payments) > 1:
-        discrepancy_category = "Duplicate Payment"
-        is_discrepancy = True
-    
-    root_cause = generate_llm_analysis(transaction, payment_log) if is_discrepancy else "No discrepancy detected"
-    
-    return {
-        "transaction_id": transaction_id,
-        "is_discrepancy": is_discrepancy,
-        "discrepancy_category": discrepancy_category,
-        "root_cause": root_cause
-    }
 
 # @app.get("/reconcile")
 def reconcile(transaction_id: str):
@@ -561,110 +524,138 @@ def get_reconcile_data(
     return reconcile_data
 
 async def check_and_update_discrepancies():
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
+    async with aiomysql.create_pool(
+        host="127.0.0.1",
+        user="app_user",
+        password="app_password",
+        port=3307,
+        db='trading_platform',
+        minsize=1,
+        maxsize=10
+    ) as pool:
+        async with pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                try:
+                    # 1. Check for unscanned transactions
+                    await cursor.execute("""
+                        SELECT * FROM transactions
+                        WHERE transaction_id NOT IN (SELECT transaction_id FROM reconciliation_records)
+                    """)
+                    unscanned_transactions = await cursor.fetchall()
 
-    try:
-        # 1. Check for unscanned transactions
-        cursor.execute("""
-            SELECT * FROM transactions
-            WHERE transaction_id NOT IN (SELECT transaction_id FROM reconciliation_records)
-        """)
-        unscanned_transactions = cursor.fetchall()
+                    for transaction in unscanned_transactions:
+                        transaction_id = transaction[0]
 
-        for transaction in unscanned_transactions:
-            await process_transaction(transaction, cursor, connection)
-            # Create a *task* for summary generation, don't await it here
-            asyncio.create_task(generate_reconciliation_summary(transaction['transaction_id']))
+                        query = """
+                            SELECT * FROM transactions WHERE transaction_id = %s
+                        """
 
-        # 2. Check for unresolved reconciliations (This part remains the same)
-        cursor.execute("""
-            SELECT r.*, t.* FROM reconciliation_records r
-            JOIN transactions t ON r.transaction_id = t.transaction_id
-            WHERE r.resolution_status = 'Unresolved'
-        """)
-        unresolved_reconciliations = cursor.fetchall()
+                        await cursor.execute(query, (transaction_id,))
+                        transaction = await cursor.fetchone()
 
-        for reconciliation in unresolved_reconciliations:
-            await process_transaction(reconciliation, cursor, connection, is_update=True)
-            # Create a *task* for summary generation, don't await it here
-            asyncio.create_task(generate_reconciliation_summary(reconciliation['transaction_id']))
+                        if not transaction:
+                            raise HTTPException(status_code=404, detail="Transaction not found")
+                        
+                        query = """
+                            SELECT * FROM payment_logs WHERE transaction_id = %s ORDER BY timestamp DESC LIMIT 1
+                        """
+                        await cursor.execute(query, (transaction_id,))
+                        payment_log = await cursor.fetchone()
 
-        # No need to generate summary here anymore. It's done in the background.
+                        discrepancy_category = None
+                        is_discrepancy = False
+                        
+                        if not payment_log:
+                            discrepancy_category = "Missing Payments"
+                            is_discrepancy = True
+                        elif float(transaction[5]) != float(payment_log[5]):
+                            discrepancy_category = "Amount Mismatch"
+                            is_discrepancy = True
+                        elif transaction[7] != payment_log[7]:
+                            discrepancy_category = "Status Mismatch"
+                            is_discrepancy = True
 
-    except Error as e:
-        print(f"check_and_update_discrepancies error: {e}")
-        connection.rollback()
-        raise
-    finally:
-        cursor.close()
-        connection.close()
+                        # Check for duplicate payments in the payment log
+                        query = """
+                            SELECT * FROM payment_logs WHERE transaction_id = %s
+                        """
+                        await cursor.execute(query, (transaction_id,))
+                        payment_logs = await cursor.fetchall()
+                        duplicate_payments = payment_logs if len(payment_logs) > 1 else []
 
+                        if duplicate_payments and len(duplicate_payments) > 1:
+                            discrepancy_category = "Duplicate Payment"
+                            is_discrepancy = True
+                        
+                        root_cause = generate_llm_analysis(transaction, payment_log) if is_discrepancy else "No discrepancy detected"
+                        
+                        discrepancy_result = {
+                            "transaction_id": transaction_id,
+                            "is_discrepancy": is_discrepancy,
+                            "discrepancy_category": discrepancy_category,
+                            "root_cause": root_cause
+                        }
 
-async def process_transaction(transaction_data, cursor, connection, is_update=False):
-    transaction = transaction_data # Rename for consistency
-    discrepancy_result = detect_discrepancy(transaction['transaction_id'])
+                        # Get gateway status and amount
+                        await cursor.execute("""
+                            SELECT * FROM payment_logs
+                            WHERE transaction_id = %s
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        """, (transaction[0],))
+                        gateway_status_result = await cursor.fetchone()
 
-    # Get gateway status and amount
-    cursor.execute("""
-        SELECT * FROM payment_logs
-        WHERE transaction_id = %s
-        ORDER BY timestamp DESC
-        LIMIT 1
-    """, (transaction['transaction_id'],))
-    gateway_status_result = cursor.fetchone()
-    gateway_status = gateway_status_result.get('gateway_status') if gateway_status_result else None
-    gateway_amount = gateway_status_result.get('gateway_amount') if gateway_status_result else None
+                        gateway_status = gateway_status_result[4] if gateway_status_result else None
+                        gateway_amount = gateway_status_result[5] if gateway_status_result else None
 
-    discrepancy_amount = abs(float(transaction.get('amount', 0)) - float(gateway_amount or 0)) if gateway_amount is not None else -1
+                        discrepancy_amount = abs(float(transaction[5]) - float(gateway_amount or 0)) if gateway_amount is not None else -1
 
-    reconciled_balance = gateway_amount if gateway_amount is not None else None
+                        reconciled_balance = gateway_amount if gateway_amount is not None else None
 
-    # Determine resolution status
-    if gateway_status == "Success" and transaction.get('transaction_status') == "Success":
-        resolution_status = 'No Discrepancy' if discrepancy_amount == 0 else 'Resolved'
-    else:
-        resolution_status = 'Unresolved'
+                        # Determine resolution status
+                        if gateway_status == "Success" and transaction[7] == "Success":
+                            resolution_status = 'No Discrepancy' if discrepancy_amount == 0 else 'Resolved'
+                        else:
+                            resolution_status = 'Unresolved'
 
-    if resolution_status == "Unresolved" or resolution_status == "No Discrepancy":
-        reconciled_balance = None  # Reset if not resolved
+                        if resolution_status == "Unresolved" or resolution_status == "No Discrepancy":
+                            reconciled_balance = None  # Reset if not resolved
 
-    try:
-        if is_update:
-            update_query = """
-                UPDATE reconciliation_records SET 
-                    discrepancy_category = %s, status = %s, gateway_status = %s,
-                    discrepancy_amount = %s, root_cause = %s, resolution_status = %s,
-                    balance = %s, reconciled_balance = %s
-                WHERE reconciliation_id = %s
-            """
-            cursor.execute(update_query, (
-                discrepancy_result.get('discrepancy_category'), transaction.get('transaction_status'), gateway_status,
-                discrepancy_amount, discrepancy_result.get('root_cause', {}).get('analysis'), resolution_status,
-                transaction.get('amount'), reconciled_balance, transaction['reconciliation_id']
-            ))
+                        try:
+                            insert_query = """
+                                INSERT INTO reconciliation_records (
+                                    reconciliation_id, transaction_id, discrepancy_category, transaction_date,
+                                    payment_reference, amount, status, gateway_status, discrepancy_amount,
+                                    root_cause, assigned_to, resolution_status, balance, reconciled_balance
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
 
-        else:  # Insert new record
-            insert_query = """
-                INSERT INTO reconciliation_records (
-                    reconciliation_id, transaction_id, discrepancy_category, transaction_date,
-                    payment_reference, amount, status, gateway_status, discrepancy_amount,
-                    root_cause, assigned_to, resolution_status, balance, reconciled_balance
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(insert_query, (
-                str(uuid.uuid4()), transaction.get('transaction_id'), discrepancy_result.get('discrepancy_category'),
-                transaction.get('transaction_date'), transaction.get('payment_reference'), transaction.get('amount'),
-                transaction.get('transaction_status'), gateway_status, discrepancy_amount,
-                discrepancy_result.get('root_cause', {}).get('analysis'), None, resolution_status,
-                transaction.get('amount'), reconciled_balance
-            ))
-        connection.commit()
+                            if discrepancy_result.get('root_cause', {}) == "No discrepancy detected":
+                                root_cause = discrepancy_result.get('root_cause', {})
+                            else:
+                                root_cause = discrepancy_result.get('root_cause', {}).get('analysis', "")
 
-    except Error as e:
-        print(f"Error processing transaction: {e}")
-        connection.rollback()  # Important: Rollback on error
-        raise # Reraise the exception after rollback
+                            await cursor.execute(insert_query, (
+                                str(uuid.uuid4()), transaction[0], discrepancy_result.get('discrepancy_category'),
+                                transaction[8], transaction[9], transaction[5],
+                                transaction[7], gateway_status, discrepancy_amount,
+                                root_cause, None, resolution_status,
+                                transaction[5], reconciled_balance
+                            ))
+                            await connection.commit()
+                            print("Data Inserted")
+
+                        except Error as e:
+                            print(f"Error processing transaction: {e}")
+                            connection.rollback()  # Important: Rollback on error
+                            raise # Reraise the exception after rollback
+
+                        asyncio.create_task(generate_reconciliation_summary(transaction[0]))
+
+                except Error as e:
+                    print(f"check_and_update_discrepancies error: {e}")
+                    connection.rollback()
+                    raise
 
 
 async def generate_reconciliation_summary(transaction_id=None):  # Add transaction_id parameter
