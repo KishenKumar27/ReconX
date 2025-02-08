@@ -40,6 +40,8 @@ Generate a Python script that:
 ### Example Output:
 ```python
 import pandas as pd
+import uuid
+
 
 def standardize_dataset(dataset):
     # Define mappings for columns and values
@@ -70,9 +72,12 @@ def standardize_dataset(dataset):
 
     value_mappings = {
         'status': {
-            'Success': 'Processed',
-            'Successful': 'Processed',
-            'Unsuccessful': 'Failed'
+            'Success': 'Successful',
+            'Processed': 'Successful',
+            'Completed': 'Successful',
+            'Unsuccessful': 'Failed',
+            'In Progress': 'Pending',
+            "Reversed": 'Failed'
         }
     }
 
@@ -87,9 +92,9 @@ def standardize_dataset(dataset):
     return standardized_data
 
 # Example usage
-crypto_payments = pd.read_csv('crypto_payments.csv')
-e_wallet_transactions = pd.read_csv('e_wallet_transactions.csv')
-fpx_transactions = pd.read_csv('fpx_transactions.csv')
+crypto_payments = pd.read_csv('/Users/kishenkumarsivalingam/Documents/Projects/temporary-name/crypto.csv')
+e_wallet_transactions = pd.read_csv('/Users/kishenkumarsivalingam/Documents/Projects/temporary-name/e-wallet.csv')
+fpx_transactions = pd.read_csv('/Users/kishenkumarsivalingam/Documents/Projects/temporary-name/fpx.csv')
 
 crypto_payments.name = 'crypto_payments_table'
 e_wallet_transactions.name = 'e_wallet_transactions_table'
@@ -101,7 +106,9 @@ standardized_fpx = standardize_dataset(fpx_transactions)
 
 # Combine standardized datasets
 final_dataset = pd.concat([standardized_crypto, standardized_e_wallet, standardized_fpx])
-final_dataset.to_csv('standardized_payments.csv', index=False)
+
+# Generate a random log_id for each row
+final_dataset['log_id'] = [str(uuid.uuid4()) for _ in range(len(final_dataset))]
 
 ### Instructions:
 - **Only provide the Python code as the output. Do not include any explanations, comments, or additional text.**
