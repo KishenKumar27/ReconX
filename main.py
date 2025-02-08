@@ -92,7 +92,7 @@ def get_payment_log_by_transaction_id(transaction_id: str) -> Optional[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = """
-        SELECT * FROM payment_logs WHERE transaction_id = %s ORDER BY timestamp DESC LIMIT 1
+        SELECT * FROM payment WHERE transaction_id = %s ORDER BY timestamp DESC LIMIT 1
     """
     cursor.execute(query, (transaction_id,))
     payment_log = cursor.fetchone()
@@ -162,7 +162,7 @@ def get_duplicate_payments(transaction_id: str) -> List[dict]:
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = """
-        SELECT * FROM payment_logs WHERE transaction_id = %s
+        SELECT * FROM payment WHERE transaction_id = %s
     """
     cursor.execute(query, (transaction_id,))
     payment_logs = cursor.fetchall()
@@ -246,7 +246,7 @@ def reconcile(transaction_id: str):
         
         reconciled_balance_query = f"""
             SELECT COALESCE(SUM(t.amount), 0) FROM transactions t
-            JOIN payment_logs p ON t.transaction_id = p.transaction_id
+            JOIN payment p ON t.transaction_id = p.transaction_id
             WHERE t.transaction_status = 'Success' AND p.gateway_status = 'Success' AND t.amount = p.gateway_amount AND transaction_id = '{transaction_id}'
         """
         cursor.execute(reconciled_balance_query)
@@ -338,7 +338,7 @@ async def check_and_update_discrepancies():
 
         # Get gateway status from payment logs
         gateway_status_query = """
-            SELECT * FROM payment_logs
+            SELECT * FROM payment
             WHERE transaction_id = %s
             ORDER BY timestamp DESC
             LIMIT 1
@@ -474,7 +474,7 @@ async def check_and_update_discrepancies():
     for reconciliation in unresolved_reconciliations:
         # Get gateway status from payment logs
         gateway_status_query = """
-            SELECT * FROM payment_logs
+            SELECT * FROM payment
             WHERE transaction_id = %s
             ORDER BY timestamp DESC
             LIMIT 1
