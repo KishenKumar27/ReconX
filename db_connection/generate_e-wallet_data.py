@@ -20,15 +20,14 @@ def generate_e_wallet_data(num_transactions=100):
         transaction_status = random.choice(transaction_statuses)
         transaction_category = random.choice(transaction_categories)
         transaction_time = start_date + timedelta(days=random.randint(0, 30), hours=random.randint(0, 23), minutes=random.randint(0, 59))
-        issue_flag = None
-        
+                
         # Introduce some issue flags
         if random.random() < 0.1:
             issue_flag = "Unrecorded Transaction"
         elif random.random() < 0.1:
             issue_flag = "Repeated Entry"
         
-        transactions.append((transaction_id, user_account, payment_method, transaction_value, transaction_status, transaction_category, transaction_time, issue_flag))
+        transactions.append((transaction_id, user_account, payment_method, transaction_value, transaction_status, transaction_category, transaction_time))
     
     return transactions
 
