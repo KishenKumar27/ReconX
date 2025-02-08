@@ -12,6 +12,8 @@ import requests
 from datetime import datetime, timedelta
 import asyncio
 from dotenv import load_dotenv
+import pandas as pd
+import io
 # from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
@@ -858,10 +860,11 @@ def create_table_if_not_exists(cursor, table_name, df):
 def upload_csv_to_mysql(file: UploadFile):
     try:
         conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="root",
-            password="root_password",
-            database="mysql"
+            host="10.10.240.93",
+            user="app_user",
+            password="app_password",
+            database="payment_resolution",
+            port=3306
         )
         cursor = conn.cursor()
 
