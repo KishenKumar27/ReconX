@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from together import Together
 import uuid
@@ -102,35 +102,62 @@ def search_internet(query: str) -> str:
             return "\n".join([result['snippet'] for result in data['organic']])
     return "No results found."
 
-def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> str:
+def generate_llm_analysis(transaction: dict, payment_log: Optional[dict]) -> dict:
     prompt = f"""
-    Transaction Details: 
-    - Amount: {transaction['amount']}
-    - Status: {transaction['transaction_status']}
-    - Currency: {transaction['currency']}
-    
-    Payment Log Details: {payment_log if payment_log else 'No payment log found'}
-    
-    Analyze the discrepancy and provide the most likely root cause.
+    Analyze the given transaction data to identify the root cause of a potential financial discrepancy. Consider the transaction status, amount, currency, and gateway code, as well as any available payment log information.
+
+    Key Data Points:
+    - Transaction amount and currency: {transaction['amount']} {transaction['currency']}
+    - Transaction status: {transaction['transaction_status']}
+    - Payment log status: {payment_log.get('gateway_status', 'No log') if payment_log else 'Not available'}
+
+    Search Results:
+    {search_internet(f"{transaction['transaction_status']} {transaction['amount']} {transaction['currency']} discrepancy")}
+
+    Provide a concise analysis in the following format:
+    The root cause of the discrepancy is likely [root cause], based on [key evidence]. Confidence level: [High/Medium/Low]. 
+    Then, provide 1-2 critical next steps as recommendations in a short paragraph.
     """
-    
-    # Perform an internet search for additional context
-    search_query = f"Financial discrepancy {transaction['transaction_status']} {transaction['currency']} {transaction['amount']}"
-    search_results = search_internet(search_query)
-    
-    prompt += f"\n\nInternet Search Results:\n{search_results}"
-    
+
     try:
         response = client.chat.completions.create(
-            model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            model="deepseek-ai/DeepSeek-V3",
             messages=[
-                {"role": "system", "content": "You are a financial reconciliation expert."},
+                {"role": "system", "content": "You are a payment forensic analyst. Use systematic multi-step reasoning. Consider multiple angles before concluding."},
                 {"role": "user", "content": prompt}
             ]
         )
-        return response.choices[0].message.content
+        analysis = response.choices[0].message.content
+        parts = analysis.split("\n\n")
+        analysis_text = parts[0]
+        recommendation_text = parts[1].strip()
+        if recommendation_text.startswith("Recommendation:") or recommendation_text.startswith("Next steps:"):
+            recommendation_text = recommendation_text.split(":")[1].strip()
+        return {
+            "analysis": analysis_text,
+            "recommendation": recommendation_text
+        }
     except Exception as e:
-        return f"Error generating analysis: {str(e)}"
+        return {
+            "analysis": "Analysis error: unable to determine root cause",
+            "recommendation": "Contact the payment gateway support team for further assistance.",
+            "error": str(e)
+        }
+
+
+
+def get_duplicate_payments(transaction_id: str) -> List[dict]:
+    # Check for duplicate payments in the payment log
+    connection = get_db_connection()
+    cursor = connection.cursor(dictionary=True)
+    query = """
+        SELECT * FROM payment_logs WHERE transaction_id = %s
+    """
+    cursor.execute(query, (transaction_id,))
+    payment_logs = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return payment_logs if len(payment_logs) > 1 else []
 
 @app.get("/detect_discrepancy")
 def detect_discrepancy(transaction_id: str = Query(..., description="Transaction ID to check")):
@@ -148,8 +175,14 @@ def detect_discrepancy(transaction_id: str = Query(..., description="Transaction
     elif float(transaction['amount']) != float(payment_log['gateway_amount']):
         discrepancy_category = "Amount Mismatch"
         is_discrepancy = True
-    elif transaction['transaction_status'] == "Pending" and payment_log['gateway_status'] == "Success":
+    elif transaction['transaction_status'] != payment_log['gateway_status']:
         discrepancy_category = "Status Mismatch"
+        is_discrepancy = True
+
+    # Check for duplicate payments in the payment log
+    duplicate_payments = get_duplicate_payments(transaction_id)
+    if duplicate_payments and len(duplicate_payments) > 1:
+        discrepancy_category = "Duplicate Payment"
         is_discrepancy = True
     
     possible_root_cause = generate_llm_analysis(transaction, payment_log) if is_discrepancy else "No discrepancy detected"
@@ -161,12 +194,12 @@ def detect_discrepancy(transaction_id: str = Query(..., description="Transaction
         "possible_root_cause": possible_root_cause
     }
 
-@app.post("/reconcile")
-def reconcile(request: ReconcileRequest):
+@app.get("/reconcile")
+def reconcile(transaction_id: str, discrepancy_category: str, possible_root_cause: str):
     connection = get_db_connection()
     cursor = connection.cursor()
     
-    transaction = get_transaction_by_id(request.transaction_id)
+    transaction = get_transaction_by_id(transaction_id)
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     
@@ -188,16 +221,16 @@ def reconcile(request: ReconcileRequest):
             VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(audit_query, (
-            str(uuid.uuid4()), request.transaction_id,
-            f"Manual reconciliation: {request.discrepancy_category}", "system", datetime.now()
+            str(uuid.uuid4()), transaction_id,
+            f"Manual reconciliation: {discrepancy_category}", "system", datetime.now()
         ))
         connection.commit()
         
         return {
             "current_balance": float(current_balance),
             "reconciled_balance": float(reconciled_balance),
-            "discrepancy_category": request.discrepancy_category,
-            "possible_root_cause": request.possible_root_cause
+            "discrepancy_category": discrepancy_category,
+            "possible_root_cause": possible_root_cause
         }
     except Exception as e:
         connection.rollback()
@@ -205,6 +238,3 @@ def reconcile(request: ReconcileRequest):
     finally:
         cursor.close()
         connection.close()
-
-if __name__ == "__main__":
-    uvicorn.run("new_main:app", host="0.0.0.0", port=8000, reload=False, workers=1)

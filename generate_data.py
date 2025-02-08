@@ -163,13 +163,46 @@ def generate_transactions(config: GenerationConfig):
 
 def generate_payment_logs(transactions, config: GenerationConfig):
     logs = []
+    discrepancies = []
+    missing_payments = []
+    payment_references = set()
+    duplicate_payment_transactions = []
+    transactions_without_discrepancy = []
+
     for tx in transactions:
+        is_discrepancy = False
         if tx[7] == "Completed":  # Only completed transactions have gateway logs
+            if random.random() < 0.2:  # 20% chance of missing payment
+                missing_payments.append(tx[0])
+                is_discrepancy = True
+                continue
+
             log_id = str(uuid.uuid4())
             gateway_name = "Payment Gateway X"
             gateway_transaction_id = str(uuid.uuid4())
             gateway_status = "Success"
             gateway_amount = tx[5]
+            
+            # Introduce discrepancy: payment log amount may not match transaction amount
+            if random.random() < 0.2:  # 20% chance of amount mismatch
+                amount_discrepancy = round(gateway_amount * random.uniform(0.01, 0.1), 2)  # 1% to 10% discrepancy
+                gateway_amount += amount_discrepancy
+                discrepancies.append((tx[0], amount_discrepancy))
+                is_discrepancy = True
+
+            # Introduce discrepancy: status mismatch
+            if random.random() < 0.2:  # 20% chance of status mismatch
+                gateway_status = "Pending"
+                discrepancies.append((tx[0], "Status mismatch"))
+                is_discrepancy = True
+
+            # Introduce discrepancy: duplicate payment reference
+            if gateway_status == "Success" and random.random() < 0.2:
+                duplicate_payment_transactions.append(tx[0])
+                discrepancies.append((tx[0], "Duplicate payment"))
+                is_discrepancy = True
+            payment_references.add(tx[9])
+
             gateway_currency = tx[6]
             gateway_response = "Success"
             timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
@@ -179,45 +212,52 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                 gateway_status, gateway_amount, gateway_currency,
                 gateway_response, timestamp
             ])
+
+            if not is_discrepancy:
+                transactions_without_discrepancy.append(tx[0])
+
+    print("\nTransactions with discrepancies:")
+    for tx_id, discrepancy in discrepancies:
+        print(f"Transaction ID: {tx_id}, Discrepancy: {discrepancy}")
+
+    print("\nMissing payments:")
+    for tx_id in missing_payments:
+        print(f"Transaction ID: {tx_id}")
+
+    print("\nDuplicate payments:")
+    for tx_id in duplicate_payment_transactions:
+        print(f"Transaction ID: {tx_id}")
+
+    print("\nTransactions without discrepancies:")
+    for tx_id in transactions_without_discrepancy:
+        print(f"Transaction ID: {tx_id}")
+
     return logs
+
 
 def generate_reconciliation_records(transactions, payment_logs, config: GenerationConfig):
     reconciliations = []
     payment_log_map = {log[1]: log for log in payment_logs}
-    discrepancies_found = []
 
     for tx in transactions:
         reconciliation_id = str(uuid.uuid4())
         gateway_log = payment_log_map.get(tx[0])
 
         if gateway_log:
-            if random.random() < 0.2:  # 20% chance of discrepancy
-                discrepancy_amount = round(tx[5] * random.uniform(0.01, 0.1), 2)  # 1% to 10% discrepancy
-                matched_status = "Partial"
-                discrepancy_reason = "Amount mismatch"
-                discrepancies_found.append((tx[0], discrepancy_amount))
-            else:
-                matched_status = "Matched"
-                discrepancy_amount = 0.00
-                discrepancy_reason = ""
+            reconciliations.append([
+                reconciliation_id, tx[0], gateway_log[3],
+                "Matched", 0.00, "",
+                "system", datetime.now()
+            ])
         else:
-            matched_status = "Unmatched"
-            discrepancy_amount = tx[5]
-            discrepancy_reason = "Payment not found"
-            discrepancies_found.append((tx[0], discrepancy_amount))
-
-        reconciliations.append([
-            reconciliation_id, tx[0], gateway_log[3] if gateway_log else "N/A",
-            matched_status, discrepancy_amount, discrepancy_reason,
-            "system", datetime.now()
-        ])
-
-    # Print transactions with discrepancies
-    print("\nTransactions with discrepancies:")
-    for tx_id, amount in discrepancies_found:
-        print(f"Transaction ID: {tx_id}, Discrepancy Amount: {amount}")
+            reconciliations.append([
+                reconciliation_id, tx[0], "N/A",
+                "Unmatched", 0.00, "",
+                "system", datetime.now()
+            ])
 
     return reconciliations
+
 
 def generate_refund_chargebacks(transactions, config: GenerationConfig):
     refunds = []
