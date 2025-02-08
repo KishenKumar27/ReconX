@@ -216,7 +216,13 @@ def generate_payment_logs(transactions, config: GenerationConfig):
             # Crypto payment logs
             if tx[3] == "Crypto":
                 unique_id = str(uuid.uuid4())
-                blockchain_platform = "Blockchain X"
+                blockchain_platforms = [
+                    "Ethereum", "Hyperledger Fabric", "Corda", "Polkadot", 
+                    "Avalanche", "Solana", "Binance Smart Chain", "Tezos", 
+                    "EOSIO", "Stellar", "Algorand", "Hedera Hashgraph"
+                ]
+
+                blockchain_platform = random.choice(blockchain_platforms)
                 tx_hash = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
                 gateway_currency = tx[6]
@@ -231,7 +237,14 @@ def generate_payment_logs(transactions, config: GenerationConfig):
             # FPX payment logs
             elif tx[3] == "FPX":
                 unique_id = str(uuid.uuid4())
-                bank_name = "Bank X"
+                malaysian_banks = [
+                    "Maybank", "CIMB Bank", "Public Bank", "RHB Bank", "Hong Leong Bank",
+                    "AmBank", "Bank Islam Malaysia", "Bank Muamalat", "Alliance Bank",
+                    "Affin Bank", "HSBC Malaysia", "Standard Chartered Malaysia",
+                    "UOB Malaysia", "OCBC Bank Malaysia", "Agrobank"
+                ]
+
+                bank_name = random.choice(malaysian_banks)
                 fpx_tx_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
                 currency = tx[6]
@@ -246,7 +259,13 @@ def generate_payment_logs(transactions, config: GenerationConfig):
             # E-Wallet payment logs
             elif tx[3] == "E-Wallet":
                 unique_id = str(uuid.uuid4())
-                ewallet_platform = "E-Wallet X"
+                ewallet_platforms = [
+                    "Touch 'n Go eWallet", "Boost", "GrabPay", "ShopeePay", 
+                    "BigPay", "Lazada Wallet", "FavePay", "Setel", 
+                    "MAE by Maybank", "Razer Pay", "Alipay", "WeChat Pay"
+                ]
+
+                ewallet_platform = random.choice(ewallet_platforms)
                 ewallet_tx_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
                 currency = tx[6]
