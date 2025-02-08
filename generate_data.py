@@ -234,19 +234,19 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 
             # Crypto payment logs
             if tx[3] == "Crypto":
-                unique_id = str(uuid.uuid4())
+                unique_id = log_id =str(uuid.uuid4())
                 blockchain_platforms = [
                     "Ethereum", "Hyperledger Fabric", "Corda", "Polkadot", 
                     "Avalanche", "Solana", "Binance Smart Chain", "Tezos", 
                     "EOSIO", "Stellar", "Algorand", "Hedera Hashgraph"
                 ]
 
-                blockchain_platform = random.choice(blockchain_platforms)
-                tx_hash = str(uuid.uuid4())
+                blockchain_platform = gateway_name = random.choice(blockchain_platforms)
+                tx_hash = gateway_transaction_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
                 gateway_currency = tx[6]
                 gateway_response = "Success"
-                time_stamp = tx[8] + timedelta(minutes=random.randint(1, 60))
+                time_stamp = timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
                 crypto_logs.append([
                     unique_id, tx[0], blockchain_platform, tx_hash,
                     gateway_verification, gateway_amount, gateway_currency,
@@ -255,7 +255,7 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 
             # FPX payment logs
             elif tx[3] == "FPX":
-                unique_id = str(uuid.uuid4())
+                unique_id = log_id = str(uuid.uuid4())
                 malaysian_banks = [
                     "Maybank", "CIMB Bank", "Public Bank", "RHB Bank", "Hong Leong Bank",
                     "AmBank", "Bank Islam Malaysia", "Bank Muamalat", "Alliance Bank",
@@ -263,12 +263,12 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                     "UOB Malaysia", "OCBC Bank Malaysia", "Agrobank"
                 ]
 
-                bank_name = random.choice(malaysian_banks)
-                fpx_tx_id = str(uuid.uuid4())
+                bank_name = gateway_name = random.choice(malaysian_banks)
+                fpx_tx_id = gateway_transaction_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
-                currency = tx[6]
+                currency = gateway_currency = tx[6]
                 gateway_response = "Success"
-                time_stamp = tx[8] + timedelta(minutes=random.randint(1, 60))
+                time_stamp = timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
                 fpx_logs.append([
                     unique_id, tx[0], bank_name, fpx_tx_id,
                     gateway_verification, gateway_amount, currency,
@@ -277,19 +277,19 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 
             # E-Wallet payment logs
             elif tx[3] == "E-Wallet":
-                unique_id = str(uuid.uuid4())
+                unique_id = log_id = str(uuid.uuid4())
                 ewallet_platforms = [
                     "Touch 'n Go eWallet", "Boost", "GrabPay", "ShopeePay", 
                     "BigPay", "Lazada Wallet", "FavePay", "Setel", 
                     "MAE by Maybank", "Razer Pay", "Alipay", "WeChat Pay"
                 ]
 
-                ewallet_platform = random.choice(ewallet_platforms)
-                ewallet_tx_id = str(uuid.uuid4())
+                ewallet_platform = gateway_name = random.choice(ewallet_platforms)
+                ewallet_tx_id = gateway_transaction_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
-                currency = tx[6]
+                currency = gateway_currency = tx[6]
                 gateway_response = "Success"
-                time_stamp = tx[8] + timedelta(minutes=random.randint(1, 60))
+                time_stamp = timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
                 ewallet_logs.append([
                     unique_id, tx[0], ewallet_platform, ewallet_tx_id,
                     gateway_verification, gateway_amount, currency,
@@ -298,16 +298,16 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 
             # Mobile payment logs
             elif tx[3] == "Mobile":
-                unique_id = str(uuid.uuid4())
+                unique_id = log_id = str(uuid.uuid4())
                 mob_type = [
                     "Vodafone", "Airtel", "Tpaga", "Equitel", "OrangeMoney"
                 ]
-                mob_type = random.choice(mob_type)
-                mob_tx_id = str(uuid.uuid4())
+                mob_type = gateway_name = random.choice(mob_type)
+                mob_tx_id = gateway_transaction_id = str(uuid.uuid4())
                 gateway_verification = gateway_status = "Success"
-                currency = tx[6]
+                currency = gateway_currency = tx[6]
                 gateway_response = "Success"
-                time_stamp = tx[8] + timedelta(minutes=random.randint(1, 60))
+                time_stamp = timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
                 mobile_logs.append([
                     unique_id, tx[0], mob_type, mob_tx_id,
                     gateway_verification, gateway_amount, currency,  # <-- Corrected here
@@ -323,11 +323,12 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                 gateway_currency = tx[6]
                 gateway_response = "Success"
                 timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
-                payment_logs.append([
-                    log_id, tx[0], gateway_name, gateway_transaction_id,
-                    gateway_status, gateway_amount, gateway_currency,
-                    gateway_response, timestamp
-                ])
+            
+            payment_logs.append([
+                log_id, tx[0], gateway_name, gateway_transaction_id,
+                gateway_status, gateway_amount, gateway_currency,
+                gateway_response, timestamp
+            ])
 
             # Introduce discrepancies
             if random.random() < 0.2:  # 20% chance of amount mismatch
