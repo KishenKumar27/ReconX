@@ -951,10 +951,6 @@ def upload_csv_to_mysql(file: UploadFile):
 def upload_csv(file: UploadFile = File(...)):
     return upload_csv_to_mysql(file)
 
-if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=8000)
-
 async def run_schedule():
     while True:
         await check_and_update_discrepancies()
