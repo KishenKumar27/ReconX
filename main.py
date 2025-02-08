@@ -942,10 +942,16 @@ def fetch_data():
         )
         cursor = conn.cursor()
           
-        tables = ["crypto_payment_logs", "ewallet_payment_logs", "fpx_payment_logs"]
-        results = {}
+        # Mapping database table names to readable categories
+        table_mapping = {
+            "crypto_payment_logs": "Cryptocurrency",
+            "ewallet_payment_logs": "E-Wallet",
+            "fpx_payment_logs": "FPX",
+            "mobile_payment_logs": "Mobile Payment"
+        }        
+        results = []
 
-        for table in tables:
+        for table, category in table_mapping.items():
             query = f"SELECT * FROM {table} LIMIT 5;"
             cursor.execute(query)
 
@@ -954,8 +960,9 @@ def fetch_data():
 
             # Fetch rows and convert to dict
             rows = cursor.fetchall()
-            results[table] = [dict(zip(columns, row)) for row in rows]
+            results.append({category: [dict(zip(columns, row)) for row in rows]})
 
+        cursor.close()
         conn.close()
         return results
 
@@ -965,7 +972,7 @@ def fetch_data():
 @app.get("/fetch_table")
 def get_data():
     data = fetch_data()
-    return {"data": data}
+    return data
 
 def create_table_if_not_exists(cursor, table_name, df):
     """Dynamically create a table based on CSV columns if it does not exist."""

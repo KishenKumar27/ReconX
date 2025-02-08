@@ -27,7 +27,7 @@ class GenerationConfig:
     def __post_init__(self):
         # Initialize default values if none provided
         self.users = self.users or ["user_1", "user_2", "user_3", "user_4", "user_5"]
-        self.payment_methods = self.payment_methods or ["FPX", "Crypto", "E-Wallet"]
+        self.payment_methods = self.payment_methods or ["FPX", "Crypto", "E-Wallet", "Mobile"]
         self.currencies = self.currencies or ["USD", "MYR", "BTC"]
         self.transaction_statuses = self.transaction_statuses or ["Pending", "Success", "Failed", "Cancelled"]
         self.gateway_statuses = self.gateway_statuses or ["Pending", "Success", "Failed"]
@@ -132,6 +132,24 @@ def create_tables(cursor):
     )
     """)
 
+
+    # Create mobile payment logs with new column names
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS mobile_payment_logs (
+        unique_id VARCHAR(36) PRIMARY KEY,
+        tx_id VARCHAR(36),
+        mob_type VARCHAR(100),
+        mob_tx_id VARCHAR(100),
+        gateway_verification VARCHAR(20),
+        amount DECIMAL(15, 2),
+        currency VARCHAR(10),
+        gateway_response TEXT,
+        time_stamp DATETIME,
+        FOREIGN KEY (tx_id) REFERENCES transactions(transaction_id)
+    )
+    """)
+
+
     # Create payment logs table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS payment_logs (
@@ -197,6 +215,7 @@ def generate_payment_logs(transactions, config: GenerationConfig):
     fpx_logs = []
     ewallet_logs = []
     payment_logs = []
+    mobile_logs = []
     discrepancies = []
     missing_payments = []
     duplicate_payment_transactions = []
@@ -277,6 +296,24 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                     gateway_response, time_stamp
                 ])
 
+            # Mobile payment logs
+            elif tx[3] == "Mobile":
+                unique_id = str(uuid.uuid4())
+                mob_type = [
+                    "Vodafone", "Airtel", "Tpaga", "Equitel", "OrangeMoney"
+                ]
+                mob_type = random.choice(mob_type)
+                mob_tx_id = str(uuid.uuid4())
+                gateway_verification = gateway_status = "Success"
+                currency = tx[6]
+                gateway_response = "Success"
+                time_stamp = tx[8] + timedelta(minutes=random.randint(1, 60))
+                mobile_logs.append([
+                    unique_id, tx[0], mob_type, mob_tx_id,
+                    gateway_verification, gateway_amount, currency,  # <-- Corrected here
+                    gateway_response, time_stamp
+                ])
+
             # Other payment logs
             else:
                 log_id = str(uuid.uuid4())
@@ -328,9 +365,9 @@ def generate_payment_logs(transactions, config: GenerationConfig):
     for tx_id in transactions_without_discrepancy:
         print(f"Transaction ID: {tx_id}")
 
-    return crypto_logs, fpx_logs, ewallet_logs, payment_logs
+    return crypto_logs, fpx_logs, ewallet_logs, mobile_logs, payment_logs
 
-def push_to_mysql(transactions, crypto_logs, fpx_logs, ewallet_logs, payment_logs, db_config: DBConfig):
+def push_to_mysql(transactions, crypto_logs, fpx_logs, ewallet_logs, mobile_logs, payment_logs, db_config: DBConfig):
     create_database(db_config)
     
     conn = mysql.connector.connect(
@@ -385,6 +422,16 @@ def push_to_mysql(transactions, crypto_logs, fpx_logs, ewallet_logs, payment_log
         ewallet_logs
     )
 
+    # Insert Mobile payment logs
+    cursor.executemany(
+        """INSERT INTO mobile_payment_logs (
+        unique_id, tx_id, mob_type, mob_tx_id,
+        gateway_verification, amount, currency,
+        gateway_response, time_stamp) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        mobile_logs
+    )
+
     # Insert payment logs
     cursor.executemany(
         """INSERT INTO payment_logs (
@@ -419,7 +466,7 @@ if __name__ == "__main__":
     
     # Generate data
     transactions = generate_transactions(gen_config)
-    crypto_logs, fpx_logs, ewallet_logs, payment_logs = generate_payment_logs(transactions, gen_config)
+    crypto_logs, fpx_logs, ewallet_logs, mobile_logs, payment_logs = generate_payment_logs(transactions, gen_config)
     
     # Push to MySQL
-    push_to_mysql(transactions, crypto_logs, fpx_logs, ewallet_logs, payment_logs, db_config)
+    push_to_mysql(transactions, crypto_logs, fpx_logs, ewallet_logs, mobile_logs,payment_logs, db_config)
