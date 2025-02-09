@@ -1098,6 +1098,17 @@ def upload_csv_to_mysql(file: UploadFile):
 
         if df.empty:
             raise HTTPException(status_code=400, detail="CSV file is empty.")
+        
+        # Convert time_stamp to MySQL-compatible datetime format
+        if "time_stamp" in df.columns:
+            try:
+                df["time_stamp"] = pd.to_datetime(df["time_stamp"], errors="coerce", format="%d/%m/%Y %H:%M")
+                df["time_stamp"] = df["time_stamp"].dt.strftime("%Y-%m-%d %H:%M:%S")  # Ensure correct MySQL format
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid datetime format in 'time_stamp': {str(e)}")
+
+        # Drop rows where time_stamp conversion failed (optional)
+        df.dropna(subset=["time_stamp"], inplace=True)
 
         print("CSV Loaded Successfully:\n", df.head())  # Debugging log
 
@@ -1112,8 +1123,7 @@ def upload_csv_to_mysql(file: UploadFile):
         values_placeholder = ", ".join(["%s"] * len(df.columns))
         insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
 
-        for _, row in df.iterrows():
-            cursor.execute(insert_query, tuple(row))
+        cursor.executemany(insert_query, [tuple(row) for _, row in df.iterrows()])
 
         conn.commit()
         conn.close()
