@@ -323,12 +323,6 @@ def generate_payment_logs(transactions, config: GenerationConfig):
                 gateway_currency = tx[6]
                 gateway_response = "Success"
                 timestamp = tx[8] + timedelta(minutes=random.randint(1, 60))
-            
-            payment_logs.append([
-                log_id, tx[0], gateway_name, gateway_transaction_id,
-                gateway_status, gateway_amount, gateway_currency,
-                gateway_response, timestamp
-            ])
 
             # Introduce discrepancies
             if random.random() < 0.2:  # 20% chance of amount mismatch
@@ -349,6 +343,12 @@ def generate_payment_logs(transactions, config: GenerationConfig):
 
             if not is_discrepancy:
                 transactions_without_discrepancy.append(tx[0])
+
+            payment_logs.append([
+                log_id, tx[0], gateway_name, gateway_transaction_id,
+                gateway_status, gateway_amount, gateway_currency,
+                gateway_response, timestamp
+            ])
 
     print("\nTransactions with discrepancies:")
     for tx_id, discrepancy in discrepancies:
