@@ -1,0 +1,18 @@
+{
+    "name": "USD/AUD",
+    "profitability_percentage": "50",
+    "reason": "The US dollar is currently experiencing a downward trend due to a combination of factors, including disappointing earnings from tech giants, escalating trade tensions with China, and the suspension of mail deliveries from China and Hong Kong. These factors have led to a weaker dollar and a decline in the USD/JPY exchange rate. The Australian dollar, on the other hand, has shown a modest recovery, but risks remain high due to ongoing US-China trade tensions and uncertainty surrounding Australia's economic outlook. Short-term technical indicators suggest the potential for further downside in the AUD/USD pair, with key levels to watch at 0.6150 and 0.6077. The outcome of the meeting between US President Donald Trump and Chinese President Xi Jinping could significantly impact risk sentiment in global markets and influence the Reserve Bank of Australia's policy stance.",
+    "recommendation": "Refrain",
+    "news_sources": [
+      {
+        "title": "Futures Fall As Google, AMD Tumble; Dollar Slide Continues",
+        "url": "https://www.zerohedge.com/markets/futures-fall-google-amd-tumble-dollar-slide-continues",
+        "image": "https://assets.zerohedge.com/s3fs-public/styles/16_9_max_700/public/2025-02/trader%20looking%2089%20red%20chart.jpg?itok=kyryFIML"
+      },
+      {
+        "title": "Australian Dollar Recovers, But Risks Remain High - Action Forex",
+        "url": "https://www.actionforex.com/contributors/technical-analysis/585037-australian-dollar-recovers-but-risks-remain-high/",
+        "image": "https://www.actionforex.com/wp-content/uploads/2023/02/f-aud149.jpg"
+      }
+    ]
+  }

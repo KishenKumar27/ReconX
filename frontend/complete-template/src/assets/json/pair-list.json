@@ -1,0 +1,17 @@
+[
+	{
+		"name": "GBP/USD",
+		"recommendation": "Sell",
+		"profitability_percentage": "80"
+	},
+	{
+		"name": "GBP/JPY",
+		"recommendation": "Buy",
+		"profitability_percentage": "70"
+	},
+	{
+		"name": "AUD/USD",
+		"recommendation": "Refrain",
+		"profitability_percentage": "50"
+	}
+]

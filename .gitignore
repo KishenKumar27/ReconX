@@ -6,9 +6,6 @@ __pycache__/
 # C extensions
 *.so
 
-2342.csv
-dfvd.csv
-sdvdfvdfv.ipynb
 # Distribution / packaging
 .Python
 build/

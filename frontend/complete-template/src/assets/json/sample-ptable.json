@@ -1,0 +1,84 @@
+{"data": {
+    "crypto_payment_logs":[
+    {
+      "unique_id": "005fc8e2-aa66-4635-89bb-8e720bedd009",
+      "tx_id": "8c9566ce-3b01-4d39-97b1-283810223813",
+      "blockchain_platform": "Tezos",
+      "tx_hash": "52dad150-ba24-4286-8684-0586cea2abce",
+      "gateway_verification": "Success",
+      "crypto_value": 2800.22,
+      "gateway_currency": "BTC",
+      "gateway_response": "Success",
+      "time_stamp": "2025-02-08T01:29:21"
+    },
+    {
+      "unique_id": "01bcfef6-a5a1-43a2-b5d0-7a4365354bb3",
+      "tx_id": "5e5a482c-40e8-4928-a620-7edbc8b8a839",
+      "blockchain_platform": "EOSIO",
+      "tx_hash": "73de4a54-ad0a-4fe6-9d70-965018661987",
+      "gateway_verification": "Success",
+      "crypto_value": 2451.1,
+      "gateway_currency": "USD",
+      "gateway_response": "Success",
+      "time_stamp": "2025-02-06T01:56:21"
+    },
+    {
+      "unique_id": "02c0cf6a-1f35-419e-a596-9d09f295aa14",
+      "tx_id": "703fc04a-f304-48ad-9c52-57e1adf4d2d7",
+      "blockchain_platform": "Binance Smart Chain",
+      "tx_hash": "b26c3ed0-5464-47d3-923b-1c4fb770711e",
+      "gateway_verification": "Success",
+      "crypto_value": 514.82,
+      "gateway_currency": "MYR",
+      "gateway_response": "Success",
+      "time_stamp": "2025-02-05T02:07:21"
+    },
+    {
+      "unique_id": "03bf3b87-1c2f-4ed9-a1c7-84a980f8ef67",
+      "tx_id": "fa8a7c4a-e25f-4050-9ed7-b1e2751043d9",
+      "blockchain_platform": "Hyperledger Fabric",
+      "tx_hash": "624a0d24-7461-4824-9fe3-941b70914718",
+      "gateway_verification": "Success",
+      "crypto_value": 1437.75,
+      "gateway_currency": "USD",
+      "gateway_response": "Success",
+      "time_stamp": "2025-02-05T01:42:21"
+    },
+    {
+      "unique_id": "06cd5111-f6f2-40e6-aa40-54168e09f97e",
+      "tx_id": "65b159b9-a3f1-4095-8e01-14b4f31e704b",
+      "blockchain_platform": "Ethereum",
+      "tx_hash": "1d321a08-f7fd-40c5-bf97-34bb67f0b37f",
+      "gateway_verification": "Success",
+      "crypto_value": 3657.77,
+      "gateway_currency": "BTC",
+      "gateway_response": "Success",
+      "time_stamp": "2025-02-06T02:02:21"
+    }
+    ],
+    "ewallet_payment_logs": [
+        {
+        "unique_id": "07aa4cfc-f217-4e52-9bf9-a4e8a92e7b61",
+        "tx_id": "6fd012de-7025-4f11-ba1e-09bb04ede84d",
+        "ewallet_platform": "FavePay",
+        "ewallet_tx_id": "4ac57547-2cb0-449e-b26d-80670bd98845",
+        "gateway_verification": "Success",
+        "amount": 1538.71,
+        "currency": "USD",
+        "gateway_response": "Success",
+        "time_stamp": "2025-02-04T02:18:21"
+        },
+        {
+        "unique_id": "0c48d803-d7f3-4477-a57d-b0a84445c111",
+        "tx_id": "25950aca-055a-4d39-9932-131f5f634ede",
+        "ewallet_platform": "BigPay",
+        "ewallet_tx_id": "2b12ea1e-0479-448d-928a-7d00f3bb5cb2",
+        "gateway_verification": "Success",
+        "amount": 1600.97,
+        "currency": "USD",
+        "gateway_response": "Success",
+        "time_stamp": "2025-02-06T01:32:21"
+        }
+    ]
+}
+}
