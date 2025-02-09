@@ -298,7 +298,9 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         token_counts["records_tokens"] = count_tokens(records_string)
 
         prompt = f"""
-        Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
+        You are a payment forensic analyst. Analyze the following reconciliation records and summarize the key root causes of discrepancies in a clear and concise paragraph. 
+        Focus on identifying common patterns, trends, and their frequency (e.g., "Amount mismatches caused 60% of discrepancies"). Keep the summary brief yet informative.
+
         Reconciliation Records:
         ```json
         {records_string}
