@@ -268,14 +268,14 @@ async def async_count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, partial(_count_tokens, text, model))
 
-async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
+def generate_llm_summary(reconciliation_records: List[dict]) -> str:
     if not reconciliation_records:
         print("Token usage: 0 (no records to process)")
         return "No reconciliation records found."
 
     # Initialize token counters
     token_counts = {
-        "system_prompt": await async_count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
+        "system_prompt": count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
         "records_tokens": 0,
         "prompt_template_tokens": 0,
         "total_input": 0,
@@ -295,7 +295,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
             serializable_records.append(serializable_record)
 
         records_string = json.dumps(serializable_records, default=custom_serializer)
-        token_counts["records_tokens"] = await async_count_tokens(records_string)
+        token_counts["records_tokens"] = count_tokens(records_string)
 
         prompt = f"""
         Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
@@ -308,7 +308,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
 
         # Count tokens in the prompt template (excluding the records)
         prompt_template = prompt.replace(records_string, "")
-        token_counts["prompt_template_tokens"] = await async_count_tokens(prompt_template)
+        token_counts["prompt_template_tokens"] = count_tokens(prompt_template)
         
         # Calculate total input tokens
         token_counts["total_input"] = (
@@ -317,7 +317,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
             token_counts["prompt_template_tokens"]
         )
 
-        response = await client.chat.completions.create(
+        response = client.chat.completions.create(
             model="deepseek-ai/DeepSeek-V3",
             messages=[
                 {"role": "system", "content": "You are a payment forensic analyst summarizing reconciliation data."},
@@ -326,7 +326,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         )
 
         summary = response.choices[0].message.content
-        token_counts["response"] = await async_count_tokens(summary)
+        token_counts["response"] = count_tokens(summary)
 
         # Print token usage information
         print("\nToken Usage Breakdown:")
@@ -343,7 +343,7 @@ async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         error_message = f"Error generating summary: {e}"
         print(f"\nToken Usage (Error Case):")
         print(f"Input Tokens: {token_counts['total_input']}")
-        error_tokens = await async_count_tokens(error_message)
+        error_tokens = count_tokens(error_message)
         print(f"Error Message Tokens: {error_tokens}")
         return error_message
 
