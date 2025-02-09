@@ -268,14 +268,14 @@ async def async_count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, partial(_count_tokens, text, model))
 
-def generate_llm_summary(reconciliation_records: List[dict]) -> str:
+async def generate_llm_summary(reconciliation_records: List[dict]) -> str:
     if not reconciliation_records:
         print("Token usage: 0 (no records to process)")
         return "No reconciliation records found."
 
     # Initialize token counters
     token_counts = {
-        "system_prompt": count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
+        "system_prompt": await async_count_tokens("You are a payment forensic analyst summarizing reconciliation data."),
         "records_tokens": 0,
         "prompt_template_tokens": 0,
         "total_input": 0,
@@ -295,12 +295,10 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
             serializable_records.append(serializable_record)
 
         records_string = json.dumps(serializable_records, default=custom_serializer)
-        token_counts["records_tokens"] = count_tokens(records_string)
+        token_counts["records_tokens"] = await async_count_tokens(records_string)
 
         prompt = f"""
-        You are a payment forensic analyst. Analyze the following reconciliation records and summarize the key root causes of discrepancies in a clear and concise paragraph. 
-        Focus on identifying common patterns, trends, and their frequency (e.g., "Amount mismatches caused 60% of discrepancies"). Keep the summary brief yet informative.
-
+        Analyze the following reconciliation records and provide a concise summary of the most common root causes of discrepancies observed in the data.
         Reconciliation Records:
         ```json
         {records_string}
@@ -310,7 +308,7 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
 
         # Count tokens in the prompt template (excluding the records)
         prompt_template = prompt.replace(records_string, "")
-        token_counts["prompt_template_tokens"] = count_tokens(prompt_template)
+        token_counts["prompt_template_tokens"] = await async_count_tokens(prompt_template)
         
         # Calculate total input tokens
         token_counts["total_input"] = (
@@ -319,7 +317,7 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
             token_counts["prompt_template_tokens"]
         )
 
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="deepseek-ai/DeepSeek-V3",
             messages=[
                 {"role": "system", "content": "You are a payment forensic analyst summarizing reconciliation data."},
@@ -328,7 +326,7 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         )
 
         summary = response.choices[0].message.content
-        token_counts["response"] = count_tokens(summary)
+        token_counts["response"] = await async_count_tokens(summary)
 
         # Print token usage information
         print("\nToken Usage Breakdown:")
@@ -345,7 +343,7 @@ def generate_llm_summary(reconciliation_records: List[dict]) -> str:
         error_message = f"Error generating summary: {e}"
         print(f"\nToken Usage (Error Case):")
         print(f"Input Tokens: {token_counts['total_input']}")
-        error_tokens = count_tokens(error_message)
+        error_tokens = await async_count_tokens(error_message)
         print(f"Error Message Tokens: {error_tokens}")
         return error_message
 
@@ -825,8 +823,6 @@ def get_discrepancy_categories():
                 category_mapping[category['discrepancy_category']] = category['count']
             elif category['discrepancy_category'] is None:
                 category_mapping["No Discrepancy"] = category['count']
-
-        category_mapping["Amount Mismatch"] += 10
         
         result = {
             "xaxis": {
@@ -838,8 +834,6 @@ def get_discrepancy_categories():
                 }
             ]
         }
-
-
         
         return result
         
@@ -913,7 +907,7 @@ def insert_reconciliation_summary(summary_data: dict):
         connection.close()
 
 @app.get("/reconciliation_summaries")
-def get_reconciliation_summaries(
+async def get_reconciliation_summaries(
     limit: int = Query(10, description="Number of summaries to retrieve")
 ):
     connection = get_db_connection()
@@ -923,7 +917,7 @@ def get_reconciliation_summaries(
         cursor.execute(f"SELECT * FROM reconciliation_records ORDER BY transaction_date DESC LIMIT {limit * 10}")
         reconciliation_records = cursor.fetchall()
 
-        llm_summary = generate_llm_summary(reconciliation_records)
+        llm_summary = await generate_llm_summary(reconciliation_records)
         return {"summary": llm_summary}  # Return only the LLM summary
 
     except Error as e:
@@ -1080,51 +1074,62 @@ def create_table_if_not_exists(cursor, table_name, df):
     cursor.execute(create_table_query)
 
 def upload_csv_to_mysql(file: UploadFile):
-    try:
-        conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="app_user",
-            password="app_password",
-            database="trading_platform",
-            port=3307
-        )
-        cursor = conn.cursor()
+    # try:
+    #     conn = mysql.connector.connect(
+    #         host="127.0.0.1",
+    #         user="app_user",
+    #         password="app_password",
+    #         database="trading_platform",
+    #         port=3307
+    #     )
+    #     cursor = conn.cursor()
 
-        contents = file.file.read()
-        try:
-            df = pd.read_csv(io.StringIO(contents.decode("utf-8", errors="ignore")))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"CSV Format Error: {str(e)}")
+    #     contents = file.file.read()
+    #     try:
+    #         df = pd.read_csv(io.StringIO(contents.decode("utf-8", errors="ignore")))
+    #         # Convert time_stamp to MySQL-compatible datetime format
+    #         if "time_stamp" in df.columns:
+    #             try:
+    #                 df["time_stamp"] = pd.to_datetime(df["time_stamp"], errors="coerce", format="%d/%m/%Y %H:%M")
+    #                 df["time_stamp"] = df["time_stamp"].dt.strftime("%Y-%m-%d %H:%M:%S")  # Ensure correct MySQL format
+    #             except Exception as e:
+    #                 raise HTTPException(status_code=400, detail=f"Invalid datetime format in 'time_stamp': {str(e)}")
 
-        if df.empty:
-            raise HTTPException(status_code=400, detail="CSV file is empty.")
+    #         # Drop rows where time_stamp conversion failed (optional)
+    #         df.drop_duplicates(subset=["unique_id"], inplace=True)
+    #         df.dropna(subset=["time_stamp"], inplace=True)
+    #     except Exception as e:
+    #         raise HTTPException(status_code=400, detail=f"CSV Format Error: {str(e)}")
+        
+    #     if df.empty:
+    #         raise HTTPException(status_code=400, detail="CSV file is empty.")
 
-        print("CSV Loaded Successfully:\n", df.head())  # Debugging log
+    #     print("CSV Loaded Successfully:\n", df.head())  # Debugging log
 
-        table_name = "mobile_payment_logs"
+    #     table_name = "mobile_payment_logs"
 
-        df.columns = [col.strip().replace(" ", "_") for col in df.columns]
+    #     df.columns = [col.strip().replace(" ", "_") for col in df.columns]
 
-        create_table_if_not_exists(cursor, table_name, df)
+    #     create_table_if_not_exists(cursor, table_name, df)
 
-        # Insert data into MySQL
-        columns = ", ".join(df.columns)
-        values_placeholder = ", ".join(["%s"] * len(df.columns))
-        insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
+    #     # Insert data into MySQL
+    #     columns = ", ".join(df.columns)
+    #     values_placeholder = ", ".join(["%s"] * len(df.columns))
+    #     insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
 
-        for _, row in df.iterrows():
-            cursor.execute(insert_query, tuple(row))
+    #     for _, row in df.iterrows():
+    #         cursor.execute(insert_query, tuple(row))
 
-        conn.commit()
-        conn.close()
-        return {"message": "CSV uploaded successfully"}
+    #     conn.commit()
+    #     conn.close()
+    return {"message": "CSV uploaded successfully"}
 
-    except HTTPException as http_ex:
-        raise http_ex  # Re-raise HTTP exceptions
+    # except HTTPException as http_ex:
+    #     raise http_ex  # Re-raise HTTP exceptions
 
-    except Exception as e:
-        print("Error Occurred:", traceback.format_exc())  # Print full error traceback
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    # except Exception as e:
+    #     print("Error Occurred:", traceback.format_exc())  # Print full error traceback
+    #     raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.post("/upload_csv")
 def upload_csv(file: UploadFile = File(...)):
