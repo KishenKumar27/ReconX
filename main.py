@@ -1117,8 +1117,8 @@ def upload_csv_to_mysql(file: UploadFile):
     #     values_placeholder = ", ".join(["%s"] * len(df.columns))
     #     insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({values_placeholder})"
 
-    #     for _, row in df.iterrows():
-    #         cursor.execute(insert_query, tuple(row))
+        # for _, row in df.iterrows():
+        #     cursor.execute(insert_query, tuple(row))
 
     #     conn.commit()
     #     conn.close()
