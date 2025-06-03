@@ -1,7 +1,6 @@
 import random
 import uuid
 from datetime import datetime, timedelta
-import pandas as pd
 import mysql.connector
 from dataclasses import dataclass
 
@@ -458,11 +457,11 @@ if __name__ == "__main__":
     )
     
     db_config = DBConfig(
-        host="localhost",
+        host="127.0.0.1",
         user="app_user",
         password="app_password",
-        port="3307",
-        database="trading_platform"
+        port="3306",
+        database="payment_resolution_db"
     )
     
     # Generate data

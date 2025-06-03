@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 import traceback
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -24,6 +25,15 @@ import aiomysql
 load_dotenv()
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 
 # MySQL Database configuration
@@ -31,7 +41,7 @@ DB_USER = os.getenv("DB_USER", "app_user")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "app_password")
 DB_HOST = os.getenv("DB_HOST", "10.10.240.93")
 DB_PORT = os.getenv("DB_PORT", "3306")
-DB_NAME = os.getenv("DB_NAME", "payment_resolution")
+DB_NAME = os.getenv("DB_NAME", "payment_resolution_db")
 
 # SerpAPI configuration
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
@@ -532,11 +542,11 @@ def get_reconcile_data(
 
 async def check_and_update_discrepancies():
     async with aiomysql.create_pool(
-        host="127.0.0.1",
-        user="app_user",
-        password="app_password",
-        port=3307,
-        db='trading_platform',
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        port=int(DB_PORT),
+        db=DB_NAME,
         minsize=1,
         maxsize=10
     ) as pool:
@@ -919,7 +929,7 @@ async def get_reconciliation_summaries(
         cursor.execute(f"SELECT * FROM reconciliation_records ORDER BY transaction_date DESC LIMIT {limit * 10}")
         reconciliation_records = cursor.fetchall()
 
-        llm_summary = await generate_llm_summary(reconciliation_records)
+        llm_summary = generate_llm_summary(reconciliation_records)
         return {"summary": llm_summary}  # Return only the LLM summary
 
     except Error as e:
@@ -938,11 +948,11 @@ async def startup_event():
 def fetch_four_tables():
     try:
         conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="app_user",
-            password="app_password",
-            database="trading_platform",
-            port=3307
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=int(DB_PORT)
         )
         cursor = conn.cursor()
           
@@ -976,11 +986,11 @@ def fetch_four_tables():
 def fetch_three_tables():
     try:
         conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="app_user",
-            password="app_password",
-            database="trading_platform",
-            port=3307
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=int(DB_PORT)
         )
         cursor = conn.cursor()
           
@@ -1013,11 +1023,11 @@ def fetch_three_tables():
 def fetch_consolidated_data():
     try:
         conn = mysql.connector.connect(
-            host="127.0.0.1",
-            user="app_user",
-            password="app_password",
-            database="trading_platform",
-            port=3307
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            port=int(DB_PORT)
         )
         cursor = conn.cursor()
 
